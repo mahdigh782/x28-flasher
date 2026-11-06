@@ -70,7 +70,7 @@ class StockAccessTests(unittest.TestCase):
 
 class LocalTests(unittest.TestCase):
     def test_commands_run_in_pipeline_order_and_chain_outputs(self):
-        inputs = {"stock": "s.tgz", "modern": "m.tgz", "key": "k.pub", "kmods": "km", "extra_ipks": ["a.ipk"], "feed": ["f.ipk"]}
+        inputs = {"stock": "s.tgz", "modern": "m.tgz", "extra_ipks": ["a.ipk"], "feed": ["f.ipk"]}
         work, out = Path("/w"), Path("/b/native-ubi-local-1")
         cmds = images.local_commands(inputs, work, out, Path("/r"))
         self.assertEqual([c[1].split("/")[-1] if c[0] == "python3" else c[1] for c in cmds], ["stage_native.py", "first_boot.py", "build", "run"])
@@ -148,9 +148,9 @@ if __name__ == "__main__":
 
 
 class ReleaseListTests(unittest.TestCase):
-    def test_lists_releases_with_the_userspace_tarball_and_flags_kernel_modules(self):
-        rels = [{"tag_name": "v2", "published_at": "2026-11-06T01:00:00Z", "assets": [{"name": "x28-userspace-v2-x-rootfs.tar.gz"}, {"name": "x28-kmods-v2.tar.gz"}]},
+    def test_lists_only_releases_with_the_userspace_tarball(self):
+        rels = [{"tag_name": "v2", "published_at": "2026-11-06T01:00:00Z", "assets": [{"name": "x28-userspace-v2-x-rootfs.tar.gz"}]},
                 {"tag_name": "feed-2", "assets": [{"name": "ipset.ipk"}]},
                 {"tag_name": "v1", "published_at": "2026-11-05T01:00:00Z", "assets": [{"name": "x28-userspace-v1-x-rootfs.tar.gz"}]}]
         got = images.releases(fetch=lambda url: json.dumps(rels).encode())
-        self.assertEqual(got, [{"tag": "v2", "date": "2026-11-06", "kmods": True}, {"tag": "v1", "date": "2026-11-05", "kmods": False}])
+        self.assertEqual(got, [{"tag": "v2", "date": "2026-11-06"}, {"tag": "v1", "date": "2026-11-05"}])
