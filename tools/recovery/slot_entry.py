@@ -16,7 +16,7 @@ import tempfile
 import time
 
 import slot_session as session
-from common import DEFAULT_BACKUP, PRIVATE, VENDOR_DA, backup_table, ensure_venv, sha256_file
+from common import DEFAULT_BACKUP, PRIVATE, VENDOR_DA, backup_table, ensure_venv, loaded_code_matches, sha256_file
 from restore_entry import DA_HASH, LAYOUT_HASH, check_uart, check_unit, claim_restore, host_identity, open_da, save
 from write_verify import active_slot
 
@@ -185,7 +185,7 @@ def main():
     ap.add_argument('--loader', type=Path, default=VENDOR_DA)
     ap.add_argument('--candidate-dir', type=Path, help='package_ubi output directory of the approved rootfs_a image (all sessions)')
     ap.add_argument('--base-dir', type=Path, help='rootfs_a only: package_ubi output of the image now on rootfs_a; identical/write start from it, misc may select A')
-    ap.add_argument('--backup-copy', type=Path, help='verified second complete-captured-partitions.tar')
+    ap.add_argument('--backup-copy', type=Path, help='optional second complete-captured-partitions.tar')
     ap.add_argument('--uart-log', type=Path)
     ap.add_argument('--no-uart', action='store_true', help='rootfs_a only: no UART log, so no boot log if the new image fails; the way back is a USB restore from the backup')
     ap.add_argument('--no-ssh', action='store_true', help='rootfs_a from stock B only: no live SSH check; the DA read of misc must equal the backup\'s B-selected misc instead')
@@ -224,14 +224,18 @@ def main():
         print('OFFLINE DRY RUN: no SSH, hardware import, USB command or write; execution gates not checked')
         return
     ensure_venv()
-    if not args.backup_copy or not (args.uart_log or args.no_uart):
-        raise ValueError('--write requires --backup-copy and --uart-log (or --no-uart for rootfs_a)')
-    copy, uart = args.backup_copy.resolve(strict=True), args.uart_log.resolve(strict=True) if args.uart_log else None
+    if not (args.uart_log or args.no_uart):
+        raise ValueError('--write requires --uart-log (or --no-uart for rootfs_a)')
+    copy, uart = args.backup_copy.resolve(strict=True) if args.backup_copy else None, args.uart_log.resolve(strict=True) if args.uart_log else None
     archive = backup / 'complete-captured-partitions.tar'
     expected_archive = (backup / 'ARCHIVE.sha256').read_text().split()[0]
-    if copy.samefile(archive) or sha256_file(archive) != expected_archive or sha256_file(copy) != expected_archive:
-        raise ValueError('second archive copy is missing, same file, or invalid')
-    same_disk = copy.stat().st_dev == archive.stat().st_dev
+    if sha256_file(archive) != expected_archive:
+        raise ValueError('the backup archive does not match its checksum; take the backup again')
+    same_disk = False  # a second copy is optional: when given, it must be a different file with the same hash
+    if copy is not None:
+        if copy.samefile(archive) or sha256_file(copy) != expected_archive:
+            raise ValueError('second archive copy is the same file or invalid')
+        same_disk = copy.stat().st_dev == archive.stat().st_dev
     if uart:
         check_uart(uart)
     else:
@@ -272,7 +276,7 @@ def main():
             check_uart(uart)
         check_unit(mtk.daloader, parts['proinfo'], run)
         xml_module = sys.modules.get('mtkclient.Library.DA.xmlflash.xml_lib')
-        if xml_module is None or sha256_file(Path(xml_module.__file__)) != identity['host']:
+        if xml_module is None or sha256_file(Path(xml_module.__file__)) != identity['host'] or not loaded_code_matches(xml_module):
             raise ValueError('loaded XML implementation differs from verified host')
         if args.resume:  # claimed only once the DA, unit identity and host library are verified, and just before the session:
             claim_restore(args.resume.resolve(), run)  # a USB failure before this point does not spend the tooled restore

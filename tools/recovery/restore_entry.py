@@ -15,7 +15,7 @@ import tempfile
 import time
 
 import changed_restore as engine
-from common import DEFAULT_BACKUP, FROZEN, MTK_HOME, MTKCLIENT_COMMIT, PRIVATE, VENDOR_DA, backup_table, ensure_venv, sha256_file
+from common import DEFAULT_BACKUP, FROZEN, MTK_HOME, MTKCLIENT_COMMIT, PRIVATE, VENDOR_DA, backup_table, ensure_venv, loaded_code_matches, sha256_file
 from setup_mtkclient import PATCHES
 from write_verify import active_slot
 
@@ -166,7 +166,7 @@ def main():
     ap.add_argument('--write', action='store_true')
     ap.add_argument('--backup', type=Path, default=DEFAULT_BACKUP)
     ap.add_argument('--loader', type=Path, default=VENDOR_DA)
-    ap.add_argument('--backup-copy', type=Path, help='verified second complete-captured-partitions.tar')
+    ap.add_argument('--backup-copy', type=Path, help='optional second complete-captured-partitions.tar')
     ap.add_argument('--uart-log', type=Path)
     ap.add_argument('--prior-identical', type=Path)
     ap.add_argument('--resume', type=Path, help='stopped test entry run, restore mode only')
@@ -187,14 +187,18 @@ def main():
         print('OFFLINE DRY RUN: no SSH, hardware import, USB command or write; execution gates not checked')
         return
     ensure_venv()
-    if not args.backup_copy or not args.uart_log:
-        raise ValueError('--write requires --backup-copy and --uart-log')
-    copy, uart = args.backup_copy.resolve(strict=True), args.uart_log.resolve(strict=True)
+    if not args.uart_log:
+        raise ValueError('--write requires --uart-log')
+    copy, uart = args.backup_copy.resolve(strict=True) if args.backup_copy else None, args.uart_log.resolve(strict=True)
     archive = backup / 'complete-captured-partitions.tar'
     expected_archive = (backup / 'ARCHIVE.sha256').read_text().split()[0]
-    if copy.samefile(archive) or sha256_file(archive) != expected_archive or sha256_file(copy) != expected_archive:
-        raise ValueError('second archive copy is missing, same file, or invalid')
-    same_disk = copy.stat().st_dev == archive.stat().st_dev
+    if sha256_file(archive) != expected_archive:
+        raise ValueError('the backup archive does not match its checksum; take the backup again')
+    same_disk = False  # a second copy is optional: when given, it must be a different file with the same hash
+    if copy is not None:
+        if copy.samefile(archive) or sha256_file(copy) != expected_archive:
+            raise ValueError('second archive copy is the same file or invalid')
+        same_disk = copy.stat().st_dev == archive.stat().st_dev
     check_uart(uart)
     if args.mode != 'restore' and active_slot(table) != 'b':
         raise ValueError('live SSH must confirm B and exact full layout')
@@ -228,7 +232,7 @@ def main():
         check_uart(uart)
         check_unit(mtk.daloader, parts['proinfo'], run)
         xml_module = sys.modules.get('mtkclient.Library.DA.xmlflash.xml_lib')
-        if xml_module is None or sha256_file(Path(xml_module.__file__)) != identity['host']:
+        if xml_module is None or sha256_file(Path(xml_module.__file__)) != identity['host'] or not loaded_code_matches(xml_module):
             raise ValueError('loaded XML implementation differs from verified host')
         engine.run_session(mtk.daloader, original, run, mode=args.mode)
         receipt['status'] = 'VERIFIED'
