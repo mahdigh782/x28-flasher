@@ -6,22 +6,24 @@ read-only because the tools themselves refuse (#272).
 """
 import ctypes.util
 import glob
+import http.client
 import json
 import os
-import pty
 import secrets
 import shutil
 import signal
-import socket
 import subprocess
 import sys
-import termios
 import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+if os.name != "nt":
+    import pty
+    import termios
 
 FROZEN = getattr(sys, "frozen", False)
 ASSETS = (Path(sys._MEIPASS) if FROZEN else Path(__file__).resolve().parent) / "gui"
@@ -38,15 +40,19 @@ class Job:
         self.cond, self.on_line = threading.Condition(), on_line
         # A terminal, not pipes: the guarded write tools refuse a stdin that is not a tty. The person typing in the page is the
         # human at that terminal, and the terminal echoes what they type onto the prompt line.
-        self.fd, slave = pty.openpty()
-        attrs = termios.tcgetattr(slave)
-        attrs[1] &= ~termios.OPOST  # no \n to \r\n: the page splits lines itself
-        termios.tcsetattr(slave, termios.TCSANOW, attrs)
-        try:
-            self.proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, close_fds=True,
-                                         env={**os.environ, "PYTHONUNBUFFERED": "1", "NO_COLOR": "1", "TERM": "dumb", **(env or {})})
-        finally:
-            os.close(slave)
+        child_env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", "NO_COLOR": "1", "TERM": "dumb", **(env or {})}
+        if os.name == "nt":
+            from winpty import PtyProcess
+            self.proc = PtyProcess.spawn(argv, env=child_env, dimensions=(40, 500))
+        else:
+            self.fd, slave = pty.openpty()
+            attrs = termios.tcgetattr(slave)
+            attrs[1] &= ~termios.OPOST  # no \n to \r\n: the page splits lines itself
+            termios.tcsetattr(slave, termios.TCSANOW, attrs)
+            try:
+                self.proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, close_fds=True, env=child_env)
+            finally:
+                os.close(slave)
         threading.Thread(target=self._pump, daemon=True).start()
 
     def feed(self, text):
@@ -66,10 +72,13 @@ class Job:
 
     def _pump(self):
         pending = b""
+        if os.name == "nt":
+            from windows_terminal import TerminalText
+            terminal = TerminalText()
         while True:
             try:
-                chunk = os.read(self.fd, 4096)
-            except OSError:  # EIO: the child closed its end
+                chunk = self.proc.read(4096).encode() if os.name == "nt" else os.read(self.fd, 4096)
+            except (OSError, EOFError):  # EIO/EOF: the child closed its end
                 break
             if not chunk:
                 break
@@ -81,9 +90,15 @@ class Job:
                     text = data.decode(errors="replace")
                 else:
                     text, pending = data[:err.start].decode(), data[err.start:]
-            self.feed(text)
+            self.feed(terminal.feed(text) if os.name == "nt" else text)
+        if os.name == "nt":
+            self.feed(terminal.feed("", final=True))
         code = self.proc.wait()
-        os.close(self.fd)
+        if os.name == "nt":
+            self.proc.fileobj.close()
+            self.proc._server.close()
+        else:
+            os.close(self.fd)
         with self.cond:
             self.code = code
             self.cond.notify_all()
@@ -92,17 +107,26 @@ class Job:
         if self.code is not None:
             return False
         try:
-            os.write(self.fd, (text + "\n").encode())  # the terminal echoes it onto the prompt line
-        except OSError:
+            if os.name == "nt":
+                self.proc.write(text + "\r\n")
+            else:
+                os.write(self.fd, (text + "\n").encode())  # the terminal echoes it onto the prompt line
+        except (OSError, EOFError):
             return False
         return True
 
     def stop(self, force=False):
         if self.code is None:
-            self.proc.send_signal(signal.SIGTERM if force else signal.SIGINT)
+            if os.name == "nt":
+                if force:
+                    self.proc.kill(signal.SIGTERM)
+                else:
+                    self.proc.sendcontrol('c')
+            else:
+                self.proc.send_signal(signal.SIGTERM if force else signal.SIGINT)
 
 
-MARK = "\x1e"  # session_host's marker lines start with it
+from session_host import MARK, send_command
 SESSION_ACTIONS = ("identify", "backup", "read", "test", "flash", "access", "rescue")  # the steps that talk to the modem
 
 
@@ -132,6 +156,7 @@ class SessionLink(Job):
 
     def __init__(self, argv, env, sock, app):
         self.sock, self.app, self.active, self.connected, self._marker = sock, app, None, False, None
+        self._prefix, self.session_key = "", env.get("X28_SESSION_KEY", "")
         super().__init__("session", argv, env)
         threading.Thread(target=self._reap, daemon=True).start()
 
@@ -152,11 +177,14 @@ class SessionLink(Job):
                     self._marker = None
                 else:
                     self._marker += ch
-            elif ch == MARK:
-                self.relay(out)  # what came before the marker belongs to the command the marker ends
-                self._marker = ""
             else:
-                out.append(ch)
+                self._prefix += ch
+                while self._prefix and not MARK.startswith(self._prefix):
+                    out.append(self._prefix[0])
+                    self._prefix = self._prefix[1:]
+                if self._prefix == MARK:
+                    self.relay(out)  # output before the marker belongs to the command it ends
+                    self._prefix, self._marker = "", ""
         self.relay(out)
 
     def _handle(self, text):
@@ -169,7 +197,9 @@ class SessionLink(Job):
                 job.finish(int(code))
 
     def _reap(self):
-        code = self.proc.wait()
+        with self.cond:
+            self.cond.wait_for(lambda: self.code is not None)  # drain the final marker before failing an unfinished command
+            code = self.code
         self.connected = False
         if self.app.session is self:
             self.app.session = None
@@ -181,29 +211,26 @@ class SessionLink(Job):
         deadline = time.time() + 90
         while time.time() < deadline and self.code is None:
             try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                    s.connect(self.sock)
-                    s.sendall((json.dumps(command) + "\n").encode())
+                send_command(self.sock, command, self.session_key)
                 return True
             except OSError:
                 time.sleep(0.3)
         return False
 
     def interrupt(self):
-        if self.code is None:
-            self.proc.send_signal(signal.SIGINT)
+        self.stop()
 
     def disconnect(self, force=False):
         if self.code is None:
             if force:
-                self.proc.terminate()
+                self.stop(force=True)
             else:
                 self.submit({"kind": "quit", "id": "q"})
         for _ in range(60):
             if self.code is not None:
                 return
             time.sleep(0.1)
-        self.proc.terminate()
+        self.stop(force=True)
 
 
 def session_command(argv, env, ident):
@@ -329,11 +356,11 @@ class App:
 
     def new_session(self, loader):
         fl = self.fl
-        sock = str(RUN_FILE.parent / "session.sock")
+        sock = str(RUN_FILE.parent / f"session-{secrets.token_hex(8)}.sock")
         argv = [sys.executable, "session", "--sock", sock, "--loader", loader] if fl.FROZEN else \
             [str(fl.VENV_PY), str(Path(fl.__file__).resolve()), "session", "--sock", sock, "--loader", loader]
         RUN_FILE.parent.mkdir(mode=0o700, exist_ok=True)
-        self.session = SessionLink(argv, {"X28_RECOVERY": str(fl.RECOVERY)}, sock, self)
+        self.session = SessionLink(argv, {"X28_RECOVERY": str(fl.RECOVERY), "X28_SESSION_KEY": secrets.token_hex(32)}, sock, self)
         return self.session
 
     def disconnect(self, force=False):
@@ -614,10 +641,14 @@ def running_server():
     """The server another launch left running, or None."""
     try:
         info = json.loads(RUN_FILE.read_text())
-        os.kill(info["pid"], 0)
-        socket.create_connection(("127.0.0.1", info["port"]), timeout=1).close()
-        return info
-    except (OSError, ValueError, KeyError):
+        conn = http.client.HTTPConnection("127.0.0.1", info["port"], timeout=1)
+        try:
+            conn.request("GET", f"/?t={info['token']}")
+            if conn.getresponse().status == 302:
+                return info
+        finally:
+            conn.close()
+    except (OSError, ValueError, KeyError, http.client.HTTPException):
         return None
 
 

@@ -41,8 +41,6 @@ class RunCommandTests(unittest.TestCase):
             self.run_script("raise KeyboardInterrupt\n")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 HOST = r'''
@@ -80,20 +78,25 @@ class HostProcessTests(unittest.TestCase):
         tool.write_text("import sys\nprint('tool ran', sys.argv[1:])\n")
         here = Path(__file__).resolve().parent
         proc = subprocess.Popen([sys.executable, "-c", HOST, sock, "", str(here), str(here.parent / "recovery")], stdout=subprocess.PIPE, text=True,
-                                env={**os.environ, "X28_PRIVATE": str(d)})
+                                env={**os.environ, "X28_PRIVATE": str(d), "X28_SESSION_KEY": "ab" * 32})
         try:
-            for _ in range(100):
-                if Path(sock).exists():
-                    break
-                time.sleep(0.1)
             for cmd in ({"kind": "script", "script": str(tool), "argv": ["a"], "env": {}, "id": "c1"}, {"kind": "quit", "id": "q"}):
-                with socket.socket(socket.AF_UNIX) as s:
-                    s.connect(sock)
-                    s.sendall((json.dumps(cmd) + "\n").encode())
+                for attempt in range(100):
+                    try:
+                        session_host.send_command(sock, cmd, "ab" * 32)
+                        break
+                    except OSError:
+                        if attempt == 99:
+                            raise
+                        time.sleep(0.1)
             out, _ = proc.communicate(timeout=20)
         finally:
             proc.kill()
-        self.assertIn("\x1eX28SESSION connected", out)
+        self.assertIn(session_host.MARK + "X28SESSION connected", out)
         self.assertIn("tool ran ['a']", out)
-        self.assertIn("\x1eX28DONE c1 0", out)
+        self.assertIn(session_host.MARK + "X28DONE c1 0", out)
         self.assertIn("EXIT 0 ['released']", out)  # closed for real only at the end, once
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -101,6 +101,8 @@ def main():
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--name", "x28-flasher",
            "--distpath", args.out, "--workpath", work, "--specpath", work, "--exclude-module", "PySide6", "--exclude-module", "mtkclient.gui",
            "--collect-data", "mtkclient", "--collect-binaries", "usb"]
+    if os.name == "nt":
+        cmd += ["--collect-all", "winpty"]  # ConPTY and its native extension ship inside the Windows installer
     for pkg_name in ("mtkclient", "usb", "serial", "Crypto", "Cryptodome", "colorama", "questionary", "prompt_toolkit"):
         cmd += ["--collect-submodules", pkg_name]
     for name in ("session_host",):  # only imported by name at run time (x28_flasher session), so PyInstaller's scan would miss it

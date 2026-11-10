@@ -17,7 +17,7 @@ import time
 import traceback
 from pathlib import Path
 
-MARK = "\x1e"  # marker lines start with it; the page's relay strips them out of the output
+MARK = "X28-SESSION-MARK:"  # printable: Windows terminals discard the old control-character marker
 
 
 def say(text):
@@ -59,8 +59,39 @@ def run_command(fl, cmd):
         sys.argv, sys.path[:] = argv, path
 
 
+def pipe_address(path):
+    import hashlib
+    return r'\\.\pipe\x28-' + hashlib.sha256(str(path).encode()).hexdigest()
+
+
+def send_command(path, command, key=""):
+    data = (json.dumps(command) + '\n').encode()
+    if os.name == 'nt':
+        from multiprocessing.connection import Client
+        with Client(pipe_address(path), family='AF_PIPE', authkey=bytes.fromhex(key)) as conn:
+            conn.send_bytes(data)
+    else:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.connect(path)
+            conn.sendall(data)
+
+
 def listen(path, commands):
-    """Commands arrive on a unix socket, one JSON line each; they queue up while the modem is still being waited for."""
+    """Local JSON commands: authenticated named pipe on Windows, private Unix socket elsewhere."""
+    if os.name == 'nt':
+        from multiprocessing import AuthenticationError
+        from multiprocessing.connection import Listener
+        srv = Listener(pipe_address(path), family='AF_PIPE', authkey=bytes.fromhex(os.environ['X28_SESSION_KEY']))
+
+        def accept_pipe():
+            while True:
+                try:
+                    with srv.accept() as conn:
+                        commands.put(json.loads(conn.recv_bytes(1024 * 1024)))
+                except (AuthenticationError, OSError, EOFError, ValueError):
+                    continue
+        threading.Thread(target=accept_pipe, daemon=True).start()
+        return
     Path(path).unlink(missing_ok=True)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(str(path))
