@@ -43,12 +43,12 @@ sealed class FlasherWindow : Form
         Controls.Add(status);
         http.Timeout = TimeSpan.FromSeconds(3);
         Shown += async delegate { await Start(); };
-        FormClosing += Closing;
+        FormClosing += CloseRequested;
         monitor.Tick += async delegate {
             if (checking || closing) return;
             checking = true;
             try { await State(); }
-            catch { if (backend != null && backend.HasExited) { allowClose = true; Close(); } } // page Quit
+            catch { if (!closing && !IsDisposed && backend != null && backend.HasExited) { allowClose = true; Close(); } } // page Quit
             finally { checking = false; }
         };
     }
@@ -161,7 +161,7 @@ sealed class FlasherWindow : Form
         return json.Deserialize<Dictionary<string, object>>(await Api(HttpMethod.Get, "/api/state"));
     }
 
-    async void Closing(object sender, FormClosingEventArgs e)
+    async void CloseRequested(object sender, FormClosingEventArgs e)
     {
         if (allowClose) return;
         e.Cancel = true;
