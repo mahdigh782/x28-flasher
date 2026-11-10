@@ -114,8 +114,13 @@ jobs:
       - name: Installer (Windows setup)
         if: runner.os == 'Windows'
         run: |
+          python3 tools/x28-flasher/build_windows.py
           choco install innosetup -y --no-progress
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "//DSrc=$(cygpath -w "$PWD/dist/x28-flasher")" "//DOut=$(cygpath -w "$PWD")" "//DVersion=${{ needs.version.outputs.version }}" tools/x28-flasher/installers/windows.iss
+
+      - name: Smoke test the installed Windows native app
+        if: runner.os == 'Windows'
+        run: python3 tools/x28-flasher/smoke_windows.py X28-Flasher-windows-x64-setup.exe
 
       - name: Checksums
         run: |
