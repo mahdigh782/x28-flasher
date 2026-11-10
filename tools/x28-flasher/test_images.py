@@ -134,9 +134,9 @@ class StockAccessTests(unittest.TestCase):
     def test_container_is_offline_and_runs_the_repo_script_on_read_only_inputs(self):
         cmd = images.stock_access_command(Path("/b/rootfs_b.bin"), Path("/k/router.pub"), Path("/out"), Path("/repo"))
         self.assertEqual(cmd[cmd.index("--network") + 1], "none")
-        self.assertIn("/b/rootfs_b.bin:/in/rootfs_b.bin:ro", cmd)
-        self.assertIn("/k/router.pub:/in/router.pub:ro", cmd)
-        self.assertIn("/repo/tools/build/stock_access.py:/opt/stock_access.py:ro", cmd)
+        self.assertIn(f"{Path('/b/rootfs_b.bin')}:/in/rootfs_b.bin:ro", cmd)  # host side in the platform's form, as Docker takes it
+        self.assertIn(f"{Path('/k/router.pub')}:/in/router.pub:ro", cmd)  # host side in the platform's form, as Docker takes it
+        self.assertIn(f"{Path('/repo/tools/build/stock_access.py')}:/opt/stock_access.py:ro", cmd)  # host side in the platform's form, as Docker takes it
         self.assertEqual(cmd[-8:], ["python3", "/opt/stock_access.py", "--image", "/in/rootfs_b.bin", "--public-key", "/in/router.pub", "--output", "/out"])
 
 
@@ -145,10 +145,10 @@ class LocalTests(unittest.TestCase):
         inputs = {"stock": "s.tgz", "modern": "m.tgz", "extra_ipks": ["a.ipk"], "kmods": "km", "feed": ["f.ipk"]}
         work, out = Path("/w"), Path("/b/native-ubi-local-1")
         cmds = images.local_commands(inputs, work, out, Path("/r"))
-        self.assertEqual([c[1].split("/")[-1] if c[0] == "python3" else c[1] for c in cmds], ["stage_native.py", "first_boot.py", "build", "run"])
-        self.assertEqual(cmds[0][-1], "/w/stage")
-        self.assertIn("/w/stage", cmds[1])
-        self.assertIn("/w/profile:/profile:ro", cmds[3])
+        self.assertEqual([Path(c[1]).name if c[0] == "python3" else c[1] for c in cmds], ["stage_native.py", "first_boot.py", "build", "run"])
+        self.assertEqual(cmds[0][-1], str(Path("/w/stage")))  # host paths in the platform's form
+        self.assertIn(str(Path("/w/stage")), cmds[1])
+        self.assertIn(f"{Path('/w/profile')}:/profile:ro", cmds[3])
         self.assertEqual(cmds[3][-1], "/out/native-ubi-local-1")
 
 
@@ -229,7 +229,7 @@ class InputTests(unittest.TestCase):
         cmd = images.stock_command(Path("/b/rootfs_b.bin"), Path("/o"), Path("/r"))
         self.assertIn("none", cmd)
         self.assertIn("*_vol-rootfs.ubifs", cmd[-1])  # not rootfs_data, which also matches *vol-rootfs*
-        self.assertIn("/b/rootfs_b.bin:/in/rootfs_b.bin:ro", cmd)
+        self.assertIn(f"{Path('/b/rootfs_b.bin')}:/in/rootfs_b.bin:ro", cmd)  # host side in the platform's form, as Docker takes it
 
 
 if __name__ == "__main__":
