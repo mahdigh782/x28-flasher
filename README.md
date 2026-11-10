@@ -49,12 +49,13 @@ Download the package for your system from the [releases page](https://github.com
 |---|---|---|
 | Linux x86_64 | `X28-Flasher-linux-x86_64.deb` | `sudo apt install ./X28-Flasher-linux-x86_64.deb`, then **X28 Flasher** in the menu or `x28-flasher` |
 | macOS, Apple silicon | `X28-Flasher-macos-arm64.dmg` | drag **X28 Flasher** to Applications; the app is not signed, so the first start is right-click, **Open** |
+| Windows 10 (1809+) / 11, x64 | `X28-Flasher-windows-x64-setup.exe` | run the installer, then open **X28 Flasher** from Start; the UI opens in your browser |
 
 Every merge to `main` is a release: CI builds the packages and attaches them with a `SHA256SUMS-*.txt` each. CI has no macOS runner
 while this repository is private ([#3](https://github.com/mralinp/x28-flasher/issues/3)), so the `.dmg` is only in a release when
 that job ran; otherwise [build it](#build-the-binary-and-the-packages) on a Mac.
 
-On a Mac the app has its own window; on Linux it opens the page in your browser. Only this computer can reach the page;
+On a Mac the app has its own window; on Linux and Windows it opens the page in your browser. Only this computer can reach the page;
 its **Quit** button stops the flasher.
 
 **Get an image** lists stable releases by default; tick **Include beta releases** to also list pre-releases.
@@ -65,8 +66,11 @@ Writing the selected boot slot replaces the image the modem will try at its next
 **Building an image from your backup** and **Root access** assemble the image in a container, so those two steps need Docker.
 Downloading a release's signed image and flashing it needs none.
 
-**Windows is not supported yet.** The page runs each tool in a Unix terminal (`pty`) and talks to its modem session over a Unix
-socket, and neither exists on Windows, so the CI Windows job is red and no Windows package is released.
+**Windows:** the installer bundles the Windows pseudo-terminal, so the same page and typed write confirmations work without Python or WSL.
+Windows may require a compatible WinUSB driver for the modem's download interface; bundling libusb does not install that device driver.
+**Boot order** needs an OpenSSH client (`ssh`) on the host; **Root access** also needs `ssh-keygen` (Windows Optional Features → OpenSSH Client).
+On Windows, **Stop** terminates the worker; it cannot undo a write or guarantee the device is bootable after an interrupted flash.
+Only x64 Windows, x86_64 Debian/Ubuntu-compatible Linux, and Apple-silicon macOS packages are built.
 
 **From the checkout** instead (for work on the tools; needs Python 3.10+ and libusb, `brew install libusb` on a Mac):
 
@@ -121,6 +125,9 @@ python3 -m venv bh/venv
 bh/venv/bin/python -m pip install pycryptodome pycryptodomex pyserial pyusb colorama questionary pyinstaller
 ```
 
+On Windows, use `bh/venv/Scripts/python` instead of `bh/venv/bin/python`, and also install `libusb pywinpty==3.1.2` into that venv.
+CI installs pywinpty for the Windows source tests too. Password prompts use the packaged binary's SSH helper; source checkouts on Windows should use SSH keys.
+
 **2. The binary** (`dist/x28-flasher/`, one folder that runs as it is)
 
 ```bash
@@ -168,7 +175,7 @@ for t in tools/build/test_*.py tools/recovery/test_*.py tools/x28-flasher/test_*
 ```
 
 CI runs them on Linux x86_64 (and macOS arm64 when it has a runner), then builds the binary and the package and smoke-tests the
-binary. The Windows job stops in the tests until the app is ported.
+binary. GUI prompt, terminal, session and frozen-binary smoke tests run on Windows as well as Linux and macOS.
 
 ## Support
 

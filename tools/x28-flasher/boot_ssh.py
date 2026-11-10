@@ -8,6 +8,7 @@ zlt-x28-openwrt describes: only the two priority bytes change, last copy first, 
 import os
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -31,6 +32,9 @@ def ssh(target, cmd, stdin=None, timeout=60, pw=""):
     askpass.write_text('#!/bin/sh\nprintf "%s\\n" "$X28_PW"\n')  # the OpenWrt image has an empty root password; a key is tried first
     askpass.chmod(stat.S_IRWXU)
     env = {**os.environ, "SSH_ASKPASS": str(askpass), "SSH_ASKPASS_REQUIRE": "force", "DISPLAY": ":0", "X28_PW": pw}
+    if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+        # Windows OpenSSH cannot execute the shell-script helper; the bundled binary answers instead.
+        env.update(SSH_ASKPASS=sys.executable, X28_ASKPASS='1')
     argv = ["ssh", "-p", str(port), "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
             "-o", "ConnectTimeout=5", "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa", "-o", "HostKeyAlgorithms=+ssh-rsa",  # the stock dropbear only knows ssh-rsa
              "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=publickey,password,keyboard-interactive"]

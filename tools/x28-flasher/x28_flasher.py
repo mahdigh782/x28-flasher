@@ -264,6 +264,9 @@ def selftest():
 
 
 def main():
+    if os.environ.get('X28_ASKPASS') == '1':
+        print(os.environ.get('X28_PW', ''), flush=True)
+        return
     if "--selftest" in sys.argv:
         return selftest()
     if sys.argv[1:2] == ["--run-script"]:  # how the page runs a tool when frozen: no second interpreter to call
@@ -306,9 +309,6 @@ def main():
     f.set_defaults(fn=cmd_flash)
     args = ap.parse_args()
     if not args.cmd:  # a bare launch opens the page; `wizard` is the terminal menu
-        if os.name == "nt":  # ponytail: the page runs the tools on a pty, which Windows lacks; ConPTY would bring the page there
-            print("The browser page needs a Unix terminal (pty); on Windows the terminal menu opens instead.")
-            sys.exit(__import__("wizard").run(sys.modules[__name__]) or 0)
         import gui
         sys.exit(gui.serve(sys.modules[__name__]))
     sys.exit(args.fn(args) or 0)

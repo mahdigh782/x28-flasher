@@ -12,11 +12,6 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "recovery"))
-try:
-    import pty  # noqa: F401
-except ImportError:  # Windows: a bare launch opens the terminal menu instead of the page (x28_flasher.main)
-    print("skipped: the page needs a pty")
-    sys.exit(0)
 import gui  # noqa: E402
 
 PROMPT = "print('1) a'); print('2) b'); x = input('Pick [1]: '); print('got', x or '1')"
@@ -90,7 +85,7 @@ class CommandTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             gui.build_command(FakeFl, "backup", {}, "DA")
         cmd = gui.build_command(FakeFl, "backup", {"out": "O", "twice": False}, "DA")
-        self.assertEqual(cmd[1:], ["/r/usb_backup.py", "--out", "O", "--loader", "DA", "--no-verify"])
+        self.assertEqual(cmd[1:], [str(Path('/r/usb_backup.py')), "--out", "O", "--loader", "DA", "--no-verify"])
 
     def test_only_known_actions_run(self):
         for bad in ("flash;rm", "restore", None):
@@ -156,7 +151,7 @@ class SetupTests(unittest.TestCase):
 
     def test_setup_runs_the_install_script_with_a_new_enough_python(self):
         with unittest.mock.patch.object(gui, "find_python", return_value="/p/python3.14"):
-            self.assertEqual(gui.build_command(FakeFl, "setup", {}, "DA"), ["/p/python3.14", "/r/setup_mtkclient.py"])
+            self.assertEqual(gui.build_command(FakeFl, "setup", {}, "DA"), ["/p/python3.14", str(Path('/r/setup_mtkclient.py'))])
         with unittest.mock.patch.object(gui, "find_python", return_value=None), self.assertRaises(ValueError):
             gui.build_command(FakeFl, "setup", {}, "DA")
 
@@ -182,11 +177,17 @@ class RunningTests(unittest.TestCase):
             self.assertIsNone(gui.running_server())  # no file
             run.write_text(json.dumps({"pid": 99999999, "port": 1, "token": "t"}))
             self.assertIsNone(gui.running_server())  # stale pid
-            server = ThreadingHTTPServer(("127.0.0.1", 0), gui.make_handler(gui.App(FakeFl)))
+            app = gui.App(FakeFl)
+            app.token = 't'
+            server = ThreadingHTTPServer(("127.0.0.1", 0), gui.make_handler(app))
+            app.port = server.server_address[1]
             threading.Thread(target=server.serve_forever, daemon=True).start()
             self.addCleanup(server.shutdown)
             run.write_text(json.dumps({"pid": __import__("os").getpid(), "port": server.server_address[1], "token": "t"}))
-            self.assertEqual(gui.running_server()["token"], "t")
+            with unittest.mock.patch.object(gui.os, 'kill', side_effect=AssertionError('must not signal another process')):
+                self.assertEqual(gui.running_server()["token"], "t")
+            run.write_text(json.dumps({"pid": 1, "port": app.port, "token": "wrong"}))
+            self.assertIsNone(gui.running_server())
 
 
 class ServerTests(unittest.TestCase):
@@ -225,8 +226,6 @@ class ServerTests(unittest.TestCase):
         self.assertIn("unknown action", json.loads(body)["error"])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class RehearsalMatchTests(unittest.TestCase):
@@ -245,7 +244,7 @@ class LiveSessionTests(unittest.TestCase):
     def link(self):
         link = object.__new__(gui.SessionLink)
         link.active, link.connected, link._marker, link.lines, link.tail = None, False, None, [], ""
-        link.cond, link.on_line = threading.Condition(), None
+        link.cond, link.on_line, link._prefix = threading.Condition(), None, ""
         return link
 
     def test_session_commands_from_a_tools_argv(self):
@@ -258,7 +257,7 @@ class LiveSessionTests(unittest.TestCase):
         link = self.link()
         job = gui.RunJob("backup", link)
         link.active = job
-        text = f"hello\n\x1eX28SESSION connected\nmore\n\x1eX28DONE {job.id} 3\n"
+        text = f"hello\n{gui.MARK}X28SESSION connected\nmore\n{gui.MARK}X28DONE {job.id} 3\n"
         for ch in text:  # one character at a time: a marker may arrive in pieces
             link.feed(ch)
         self.assertTrue(link.connected)
@@ -272,7 +271,7 @@ class LiveSessionTests(unittest.TestCase):
         link = self.link()
         job = gui.RunJob("read", link)
         link.active = job
-        link.feed(f"MATCH\n\n\x1eX28DONE {job.id} 0\n")
+        link.feed(f"MATCH\n\n{gui.MARK}X28DONE {job.id} 0\n")
         self.assertIn("MATCH", job.lines)
         self.assertEqual(job.code, 0)
 
@@ -280,24 +279,24 @@ class LiveSessionTests(unittest.TestCase):
         link = self.link()
         job = gui.RunJob("read", link)
         link.active = job
-        link.feed("\x1eX28DONE someone-else 0\n")
+        link.feed(f"{gui.MARK}X28DONE someone-else 0\n")
         self.assertIsNone(job.code)
 
 
 FAKE_HOST = r'''
-import json, os, socket, sys
-sock = sys.argv[1]
-srv = socket.socket(socket.AF_UNIX); srv.bind(sock); srv.listen(1)
+import queue, sys
+sys.path.insert(0, sys.argv[2])
+from session_host import listen, say
+commands = queue.Queue()
+listen(sys.argv[1], commands)
 print("waiting for the modem", flush=True)
-print("\n\x1eX28SESSION connected", flush=True)
+say("X28SESSION connected")
 while True:
-    conn, _ = srv.accept()
-    for line in conn.makefile():
-        cmd = json.loads(line)
-        if cmd["kind"] == "quit":
-            sys.exit(0)
-        print("running " + cmd["script"], flush=True)
-        print("\n\x1eX28DONE %s 0" % cmd["id"], flush=True)
+    cmd = commands.get()
+    if cmd["kind"] == "quit":
+        sys.exit(0)
+    print("running " + cmd["script"], flush=True)
+    say("X28DONE %s 0" % cmd["id"])
 '''
 
 
@@ -310,7 +309,9 @@ class LiveSessionProcessTests(unittest.TestCase):
             host.write_text(FAKE_HOST)
             sock = str(Path(d) / "s.sock")
             app = types.SimpleNamespace(session=None)
-            link = gui.SessionLink([sys.executable, str(host), sock], {}, sock, app)
+            link = gui.SessionLink([sys.executable, str(host), sock, str(Path(__file__).resolve().parent)],
+                                   {"X28_SESSION_KEY": "ab" * 32}, sock, app)
+            self.addCleanup(link.disconnect, True)
             app.session = link
             jobs = []
             for name in ("one", "two"):
@@ -326,3 +327,7 @@ class LiveSessionProcessTests(unittest.TestCase):
             self.assertTrue(link.connected)
             link.disconnect()
             self.assertIsNotNone(link.code)
+
+
+if __name__ == "__main__":
+    unittest.main()

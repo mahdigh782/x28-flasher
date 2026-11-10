@@ -65,6 +65,10 @@ jobs:
           mkdir bundle && tar -xzf ov/x28-assembly-*.tar.gz -C bundle --strip-components=1
           mv bundle/overlay overlay
 
+      - name: Windows terminal for GUI tests
+        if: runner.os == 'Windows'
+        run: python3 -m pip install pywinpty==3.1.2
+
       - name: Unit tests
         run: |
           # Every file runs, then the job fails if any did: one run shows all failures (a platform's first failure hid the rest, #100).
@@ -82,7 +86,7 @@ jobs:
           git -C bh/src -c advice.detachedHead=false -c core.autocrlf=false checkout -q FETCH_HEAD  # LF on Windows too: the bundled library is hashed
           python3 -m venv bh/venv
           ${{ matrix.py }} -m pip install -q pycryptodome pycryptodomex pyserial pyusb colorama questionary pyinstaller
-          if [ "$RUNNER_OS" = Windows ]; then ${{ matrix.py }} -m pip install -q libusb; fi
+          if [ "$RUNNER_OS" = Windows ]; then ${{ matrix.py }} -m pip install -q libusb pywinpty==3.1.2; fi
 
       - name: Build
         run: ${{ matrix.py }} tools/x28-flasher/build_binary.py --home bh --out dist --version "${{ needs.version.outputs.version }}"
@@ -92,6 +96,7 @@ jobs:
           B=dist/x28-flasher/x28-flasher
           [ "$RUNNER_OS" = Windows ] && B=$B.exe
           "$B" --selftest
+          "$B" --run-script tools/x28-flasher/smoke_gui.py
           want="$(python3 -c "import json; print(json.load(open('dist/x28-flasher/_internal/identity.json'))['xml_lib_sha256'])")"
           test "$("$B" identity | tr -d '\r')" = "$want"
           test -s dist/x28-flasher/_internal/vendor-da/DA_BR.bin  # the download agent is inside: nothing to fetch after installing
@@ -124,7 +129,7 @@ jobs:
             SHA256SUMS-${{ matrix.name }}.txt
 
   release:  # a merge to main is a release: tag the version the installers were built with and attach them (0.x are pre-releases)
-    # always(): the macOS job gets no runner while the repo is private (#3) and the Windows job is red until the app is ported; either would skip every release
+    # always(): the macOS job may have no runner while the repo is private (#3); publish the installers that built
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.result == 'success'
     needs: [version, build]
     runs-on: ubuntu-latest
@@ -142,7 +147,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          ls assets/X28-Flasher-linux-x86_64.deb  # Linux is the gate; the .dmg (no runner while private, #3) and the Windows setup (not ported yet) are attached when they built
+          ls assets/X28-Flasher-linux-x86_64.deb  # Linux is the gate; macOS and Windows installers are attached when their jobs succeed
           PRE=""
           case "$VERSION" in 0.*) PRE="--prerelease" ;; esac
           git config user.name "github-actions[bot]"
