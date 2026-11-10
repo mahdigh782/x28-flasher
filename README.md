@@ -51,9 +51,9 @@ Download the package for your system from the [releases page](https://github.com
 | macOS, Apple silicon | `X28-Flasher-macos-arm64.dmg` | drag **X28 Flasher** to Applications; the app is not signed, so the first start is right-click, **Open** |
 | Windows 10 (1809+) / 11, x64 | `X28-Flasher-windows-x64-setup.exe` | run the installer, then open **X28 Flasher** from Start; the UI opens in your browser |
 
-Every merge to `main` is a release: CI builds the packages and attaches them with a `SHA256SUMS-*.txt` each. CI has no macOS runner
-while this repository is private ([#3](https://github.com/mralinp/x28-flasher/issues/3)), so the `.dmg` is only in a release when
-that job ran; otherwise [build it](#build-the-binary-and-the-packages) on a Mac.
+Every merge to `main` triggers CI. A release is published only after all three platform builds pass and the Linux `.deb`,
+Apple-silicon macOS `.dmg`, and Windows setup `.exe` are present, each with a `SHA256SUMS-*.txt`.
+The macOS build uses the GitHub-hosted `macos-15` Apple-silicon runner.
 
 On a Mac the app has its own window; on Linux and Windows it opens the page in your browser. Only this computer can reach the page;
 its **Quit** button stops the flasher.
