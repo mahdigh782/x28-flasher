@@ -118,10 +118,7 @@ class Job:
     def stop(self, force=False):
         if self.code is None:
             if os.name == "nt":
-                if force:
-                    self.proc.kill(signal.SIGTERM)
-                else:
-                    self.proc.sendcontrol('c')
+                self.proc.kill(signal.SIGTERM)  # Ctrl-C bytes do not interrupt a Windows USB read or sleep
             else:
                 self.proc.send_signal(signal.SIGTERM if force else signal.SIGINT)
 

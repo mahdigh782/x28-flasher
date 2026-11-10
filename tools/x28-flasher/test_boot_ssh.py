@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import boot_ssh as b
 
@@ -13,6 +14,15 @@ class R:
 
 
 class BootTests(unittest.TestCase):
+    def test_windows_package_uses_the_binary_for_password_prompts(self):
+        with patch.object(b.sys, 'platform', 'win32'), patch.object(b.sys, 'frozen', True, create=True), \
+             patch.object(b.subprocess, 'run', return_value=R(b'')) as run:
+            b.ssh(('192.168.0.1', 22), 'true', pw='secret')
+        env = run.call_args.kwargs['env']
+        self.assertEqual(env['SSH_ASKPASS'], b.sys.executable)
+        self.assertEqual((env['X28_ASKPASS'], env['X28_PW']), ('1', 'secret'))
+        self.assertNotIn('secret', ' '.join(run.call_args.args[0]))
+
     def test_plan_swaps_only_the_priorities(self):
         self.assertEqual(b.plan(REC, "b").hex(), "0e0000000f")
         self.assertEqual(b.plan("0e0000000f000101", "a").hex(), "0f0000000e")
@@ -35,6 +45,8 @@ class BootTests(unittest.TestCase):
             if "cat /dev/${M}ro" in cmd:
                 return R(b"\0" * 0x100000)
             return R((now["rec"] + "\n").encode() * 4 + b"slot a\n")
+        original_ssh = b.ssh
+        self.addCleanup(setattr, b, 'ssh', original_ssh)
         b.ssh = fake
         with tempfile.TemporaryDirectory() as d:
             b.BACKUPS = Path(d)

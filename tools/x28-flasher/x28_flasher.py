@@ -264,6 +264,9 @@ def selftest():
 
 
 def main():
+    if os.environ.get('X28_ASKPASS') == '1':
+        print(os.environ.get('X28_PW', ''), flush=True)
+        return
     if "--selftest" in sys.argv:
         return selftest()
     if sys.argv[1:2] == ["--run-script"]:  # how the page runs a tool when frozen: no second interpreter to call

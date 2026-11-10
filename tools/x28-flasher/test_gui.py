@@ -85,7 +85,7 @@ class CommandTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             gui.build_command(FakeFl, "backup", {}, "DA")
         cmd = gui.build_command(FakeFl, "backup", {"out": "O", "twice": False}, "DA")
-        self.assertEqual(cmd[1:], ["/r/usb_backup.py", "--out", "O", "--loader", "DA", "--no-verify"])
+        self.assertEqual(cmd[1:], [str(Path('/r/usb_backup.py')), "--out", "O", "--loader", "DA", "--no-verify"])
 
     def test_only_known_actions_run(self):
         for bad in ("flash;rm", "restore", None):
@@ -151,7 +151,7 @@ class SetupTests(unittest.TestCase):
 
     def test_setup_runs_the_install_script_with_a_new_enough_python(self):
         with unittest.mock.patch.object(gui, "find_python", return_value="/p/python3.14"):
-            self.assertEqual(gui.build_command(FakeFl, "setup", {}, "DA"), ["/p/python3.14", "/r/setup_mtkclient.py"])
+            self.assertEqual(gui.build_command(FakeFl, "setup", {}, "DA"), ["/p/python3.14", str(Path('/r/setup_mtkclient.py'))])
         with unittest.mock.patch.object(gui, "find_python", return_value=None), self.assertRaises(ValueError):
             gui.build_command(FakeFl, "setup", {}, "DA")
 

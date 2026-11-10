@@ -1,4 +1,6 @@
 """No hardware: run with the frozen binary's --run-script to check the shipped GUI plumbing."""
+import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -19,6 +21,8 @@ def wait(predicate):
 def command(script):
     return [sys.executable, '--run-script', str(script)]
 
+
+assert subprocess.check_output([sys.executable], env={**os.environ, 'X28_ASKPASS': '1', 'X28_PW': 'test-password'}).strip() == b'test-password'
 
 with tempfile.TemporaryDirectory() as folder:
     folder = Path(folder)

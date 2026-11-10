@@ -68,6 +68,8 @@ Downloading a release's signed image and flashing it needs none.
 
 **Windows:** the installer bundles the Windows pseudo-terminal, so the same page and typed write confirmations work without Python or WSL.
 Windows may require a compatible WinUSB driver for the modem's download interface; bundling libusb does not install that device driver.
+**Boot order** needs an OpenSSH client (`ssh`) on the host; **Root access** also needs `ssh-keygen` (Windows Optional Features → OpenSSH Client).
+On Windows, **Stop** terminates the worker; it cannot undo a write or guarantee the device is bootable after an interrupted flash.
 Only x64 Windows, x86_64 Debian/Ubuntu-compatible Linux, and Apple-silicon macOS packages are built.
 
 **From the checkout** instead (for work on the tools; needs Python 3.10+ and libusb, `brew install libusb` on a Mac):
@@ -122,6 +124,9 @@ git -C bh/src -c advice.detachedHead=false checkout -q FETCH_HEAD
 python3 -m venv bh/venv
 bh/venv/bin/python -m pip install pycryptodome pycryptodomex pyserial pyusb colorama questionary pyinstaller
 ```
+
+On Windows, use `bh/venv/Scripts/python` instead of `bh/venv/bin/python`, and also install `libusb pywinpty==3.1.2` into that venv.
+CI installs pywinpty for the Windows source tests too. Password prompts use the packaged binary's SSH helper; source checkouts on Windows should use SSH keys.
 
 **2. The binary** (`dist/x28-flasher/`, one folder that runs as it is)
 
