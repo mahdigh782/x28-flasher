@@ -138,16 +138,16 @@ def rootfs_a_spec(candidate_sha, base_sha='', base_head=0, pins=FIRST_UNIT):
 
 
 def rootfs_b_spec(candidate_sha, pins=FIRST_UNIT):
-    """Write rootfs_b, the slot a stock unit boots (#89): over DL, no misc write and no SSH, so the unit's next power-up runs the new image.
+    """Write rootfs_b over DL regardless of boot selection, leaving misc unchanged.
 
-    Slot A stays what the backup holds (the stock clone the preloader falls back to) and is a guard, as are the boot chain, the modem
-    side and misc, which must still be the backup's stock B-selected record (the USB read stands in for SSH). Only the static head of rootfs_b is compared before the write: a booted slot
+    Slot A stays what the backup holds and is a guard, as are the boot chain, the modem
+    side and misc. Only the static head of rootfs_b is compared before the write: a booted slot
     rewrites its overlay tail. `restore` writes the backup's rootfs_b back (stock B).
     """
     if len(candidate_sha) != 64 or candidate_sha in (pins['rootfs_a'], pins['rootfs_b']):
         raise ValueError('rootfs_b candidate hash must be a new SHA-256')
     guards = (*(g for g in common_guards(pins) if g[0] != 'rootfs_b'), ('rootfs_a', 0x13600000, 0x4000000, pins['rootfs_a']),
-              ('misc', 0x700000, 0x100000, pins['misc']))  # the backup's stock B-selected record: proves over USB that B is the slot that boots
+              ('misc', 0x700000, 0x100000, pins['misc']))  # boot order must stay unchanged
     return Spec('rootfs_b', 0x1fc00000, 0x4000000, pins['rootfs_b'], guards, validate_rootfs_b, candidate_sha, guards, '', ROOTFS_B_HEAD)
 
 
@@ -170,7 +170,7 @@ def run_session(da, spec, original, candidate, output, *, mode, base=None, guard
 
     The caller owns the session on failure. The journal is evidence, never authority to resume.
 
-    guards=False (a plain rootfs_a flash or rehearsal, no base): no read of the target or the ~17 neighbour partitions before the write and
+    guards=False (a plain rootfs_a/rootfs_b flash or rehearsal, no base): no read of the target or the ~17 neighbour partitions before the write and
     none after it, only the write and a read-back of the target compared with what was written. The unit may have changed since its backup,
     and that is the owner's business; a restore and a base-image session always keep the full checks.
     """

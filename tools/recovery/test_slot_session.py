@@ -322,6 +322,14 @@ class BaseModeTests(FakeDA):
         events = [json.loads(l) for l in (out / 'journal.jsonl').read_text().splitlines()]
         self.assertEqual(events[-1], {'status': 'TARGET_VERIFIED'})
 
+    def test_light_slot_b_flash_replaces_changed_image_without_touching_misc(self):
+        spec = self.spec._replace(name='rootfs_b', base_sha='', base_head=32)
+        self.data[0x1000] = b'\xee' * 64  # neither the backup nor the candidate
+        s.run_session(self, spec, self.original, self.candidate, self.out, mode='write', guards=False)
+        self.assertEqual(self.data[0x1000], self.candidate)
+        self.assertEqual(self.data[0x2200], self.misc_a)
+        self.assertEqual((self.writes, self.reads), ([(0x1000, 64)], 1))
+
     def test_light_flash_stops_when_the_read_back_differs(self):
         spec = self.spec._replace(base_sha='', base_head=0)
         self.corrupt = 1

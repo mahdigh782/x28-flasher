@@ -94,13 +94,11 @@ def load_inputs(backup, loader, target, mode, candidate_dir, base_dir=None):
         if json.loads((base_dir / 'manifest.json').read_text()).get('padded_sha256') != digest(base):
             raise ValueError('base does not match its build manifest')
     if target == 'rootfs_b':
-        # The slot the unit boots (#89, stock: B): written over DL with misc untouched, so the backup must show misc selecting B.
+        # Either slot can be written over DL; boot selection stays unchanged.
         images = {n: Path(by_name[n]['image']).read_bytes() for n in ('misc', 'rootfs_a', 'rootfs_b', 'boot_para')}
         if any(digest(images[n]) != by_name[n]['sha256'] for n in images):
             raise ValueError('backup image changed after verification')
         pins = session.unit_pins(images, boot_order=False)
-        if not session.misc_boots_b(images['misc']):  # the slot that boots must be B in all four copies: stock, or a native unit that booted B
-            raise ValueError('the backup shows misc selecting slot A (or inconsistent copies): rootfs_b is only written on a unit that boots B; take a fresh backup')
         spec, candidate = session.rootfs_b_spec(rootfs_a_sha, pins), rootfs_a_image
     elif target == 'rootfs_a':
         head = base_head(base, json.loads((base_dir / 'manifest.json').read_text())) if base else 0
@@ -204,7 +202,7 @@ def main():
     ap.add_argument('--uart-log', type=Path)
     ap.add_argument('--no-uart', action='store_true', help='rootfs_a only: no UART log, so no boot log if the new image fails; the way back is a USB restore from the backup')
     ap.add_argument('--no-ssh', action='store_true', help='rootfs_a from stock B only: no live SSH check; the DA read of misc must equal the backup\'s B-selected misc instead')
-    ap.add_argument('--full-checks', action='store_true', help='rootfs_a: also read the neighbour partitions before and after the write (a flash without a base skips them by default)')
+    ap.add_argument('--full-checks', action='store_true', help='also compare the target and neighbour partitions against the backup before and after writing (plain A/B flashes skip these checks by default)')
     ap.add_argument('--prior-identical', type=Path)
     ap.add_argument('--prior-rootfs-a', type=Path, help='verified rootfs_a write run (misc sessions)')
     ap.add_argument('--resume', type=Path, help='stopped or finished write run, restore mode only')
@@ -238,9 +236,9 @@ def main():
     check_no_ssh(args.no_ssh, args.target, args.mode, spec)
     check_no_uart(args.no_uart, args.target, args.uart_log)
     print(f'{args.mode}: {args.target} only at {spec.addr:#x}, {spec.size:#x} bytes; candidate {spec.candidate_sha[:12]}; no reboot or retry')
-    if spec.base_head and not spec.base_sha:
+    if spec.base_head and not spec.base_sha and args.full_checks:
         print(f'{spec.name} is rewritten whole; before the write only its first {spec.base_head:#x} bytes (layout + rootfs) must match the backup, the overlay tail is live')
-    elif spec.base_head:
+    elif spec.base_sha and spec.base_head:
         print(f'base mode: before the write only the first {spec.base_head:#x} bytes (layout + rootfs) must match base {spec.base_sha[:12]}; the whole partition, overlay included, is replaced')
     if not args.write:
         print('OFFLINE DRY RUN: no SSH, hardware import, USB command or write; execution gates not checked')
@@ -264,10 +262,8 @@ def main():
         print('NO UART: no boot log will exist. If the new image does not boot nothing can be diagnosed; the way back is a USB restore from your backup.')
     live = 'a' if spec.base_sha and args.mode != 'restore' else 'b'  # base mode: misc selects A, the unit runs the base image
     if args.no_ssh:
-        # No SSH: the session's `before` read of misc must equal the backup's misc, which load_inputs showed is the stock
-        # B-selected record (priorities, zero tries), and the full layout is pinned by LAYOUT_HASH and the guard offsets.
-        print('NO SSH: the live slot is not confirmed by the running system; it rests on the USB read of misc matching your backup.')
-    elif args.mode != 'restore' and active_slot(table) != live:
+        print('NO SSH: boot selection does not restrict the write target; misc must stay unchanged.')
+    elif args.target == 'misc' and args.mode != 'restore' and active_slot(table) != live:
         raise ValueError(f'live SSH must confirm {live.upper()} and exact full layout')
     probe_dir = PRIVATE / 'usb-probe'
     probe_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -305,7 +301,7 @@ def main():
             prior = priors['resume']
             prior['status'] = 'RESTORE_ATTEMPTED'
             save(args.resume.resolve(), prior)
-        light = args.target == 'rootfs_a' and args.mode in ('identical', 'write') and base is None and not args.full_checks
+        light = args.target in ('rootfs_a', 'rootfs_b') and args.mode in ('identical', 'write') and base is None and not args.full_checks
         session.run_session(mtk.daloader, spec, original, candidate, run, mode=args.mode, base=base, guards=not light)
         receipt['status'] = 'VERIFIED'
         print('Target and guards verified. No reboot issued; ' + ('after a no-UART flash do not reboot casually until x28-bootok has reset the boot counter.' if args.no_uart else 'review UART before approving the next step.'))

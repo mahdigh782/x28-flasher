@@ -53,6 +53,19 @@ def identity_values(data):
     return out
 
 
+def selected_boot_slot(data):
+    """USB reports the stored boot selection, not a running OS slot."""
+    from boot_ssh import BootError, boot_slot, parse
+    offsets = [0x800 + k * 0x40000 for k in range(4)]
+    if not data or len(data) != 0x100000 or any(data[o:o + 8] != b'\x00AB0\xff\xff\xff\xff' for o in offsets):
+        return None
+    try:
+        _, records = parse('\n'.join(data[o + 8:o + 16].hex() for o in offsets))
+        return boot_slot(records[0])
+    except BootError:
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--loader", type=Path, default=VENDOR_DA if VENDOR_DA.is_file() else None)
@@ -65,6 +78,7 @@ def main():
     info = {}
     try:
         productinfo = read_by_name.read_partition(da, "productinfo")  # first: after a refused command this DA stops answering
+        misc = read_by_name.read_partition(da, "misc")
         table, _ = da.read_partition_table()
         text = (table.decode(errors="replace") if isinstance(table, bytes) else table) if table else ""
         cfg, state = mtk.config, read_state(out)
@@ -73,7 +87,7 @@ def main():
                 "usb": read_by_name.usb_speed(mtk), "flashmode": state.get("flashmode") or attr(cfg, "flashmode"),
                 "target_config": state.get("target_config") if isinstance(state.get("target_config"), dict) else None,
                 "table": [{"name": n, "start": s, "size": z} for n, s, z in ROW.findall(text)],
-                "identity": identity_values(productinfo) if productinfo else []}
+                "identity": identity_values(productinfo) if productinfo else [], "boot_slot": selected_boot_slot(misc)}
     finally:
         read_by_name.power_cycle_note()
         mtk.port.close()

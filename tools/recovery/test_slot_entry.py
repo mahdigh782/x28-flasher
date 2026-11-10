@@ -22,6 +22,31 @@ class PriorTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
+    def test_slot_b_write_accepts_a_selected_backup(self):
+        images = {'misc': b'\xff' * 0x100000, 'rootfs_a': b'original-a',
+                  'rootfs_b': b'original-b', 'boot_para': b'boot'}
+        misc = bytearray(images['misc'])
+        for off in slot_session.MISC_COPIES:
+            misc[off:off + 16] = bytes.fromhex('00414230ffffffff0f0000000e000101')
+        images['misc'] = bytes(misc)
+        parts = {}
+        for name, data in images.items():
+            path = self.root / name
+            path.write_bytes(data)
+            parts[name] = {'image': str(path), 'sha256': e.digest(data), 'offset': 0, 'size': len(data)}
+        parts['proinfo'] = {'sha256': 'u' * 64}
+        candidate = b'candidate'
+        (self.root / 'rootfs-a-experimental.bin').write_bytes(candidate)
+        (self.root / 'manifest.json').write_text(json.dumps({'padded_sha256': e.digest(candidate)}))
+        spec = SPEC._replace(name='rootfs_b', addr=0, size=len(images['rootfs_b']))
+        with patch.object(e, 'verified_backup', return_value=([], parts)), \
+             patch.object(slot_session, 'unit_pins', return_value={}), \
+             patch.object(slot_session, 'rootfs_b_spec', return_value=spec), \
+             patch.object(e, 'host_identity', return_value='host'), \
+             patch.object(e, 'slot_tools_digest', return_value='tools'):
+            result = e.load_inputs(self.root, self.root / 'loader', 'rootfs_b', 'write', self.root)
+        self.assertEqual(result[4].name, 'rootfs_b')
+
     def make(self, mode='identical', status='VERIFIED', attempts=None, final='TARGET_AND_GUARDS_VERIFIED', age=0,
              ident=IDENT, header=None, ack=True, sha=None):
         self.n = getattr(self, 'n', 0) + 1
