@@ -117,7 +117,7 @@ const MENU = [
   ["backup", "Backup", "Save every partition on the board to this computer. Do this first."],
   ["access", "Root access", "Root SSH (key only, port 22) on the stock firmware in slot B, with the key you choose or a new one. Builds from a slot B image, rehearses, then writes."],
   ["build", "Get an image", "Downloads a release's signed image, or builds one from the release's assembly bundle and your backup."],
-  ["flash", "Flash OpenWrt", "Rehearse, then write an image to slot A. Every guard and typed confirmation stays."],
+  ["flash", "Flash OpenWrt", "Rehearse, then write an image to either slot. Image checks and typed confirmation stay."],
   ["boot", "Boot order", "Choose which slot the modem boots: A (OpenWrt) or B (vendor firmware). Over SSH on the running modem."],
   ["read", "Read & verify", "Read one partition from the board and compare it with your backup. Writes nothing."],
   ["uart", "UART monitor", "Capture the serial console to a log. A flash needs it unless you have no adapter."],
@@ -163,6 +163,7 @@ function drawSide() {
       <dt class="mut">Hardware ID</dt><dd class="mono">${i.hwcode != null ? "0x" + Number(i.hwcode).toString(16) : "?"}</dd>
       <dt class="mut">MEID</dt><dd class="mono" style="font-size:11.5px">${esc(i.meid || "?")}</dd>
       <dt class="mut">Flash</dt><dd>${esc(i.flashtype || "?")} · ${mb(i.flashsize)}</dd>
+      <dt class="mut">Boot slot</dt><dd>${i.boot_slot ? "Slot " + esc(i.boot_slot.toUpperCase()) : "Unknown (unreadable or ambiguous record)"}</dd>
       <dt class="mut">Mode</dt><dd>${esc(i.flashmode || "?")}</dd>
       <dt class="mut">USB</dt><dd>${esc(i.usb || "?")}</dd>
       <dt class="mut">Partitions</dt><dd>${(i.table || []).length}</dd>
@@ -409,9 +410,10 @@ function viewBoot() {
 }
 function viewBuild() {
   if (!S.releases && !S.relError) api("/api/releases", {}).then((r) => { S.releases = r.releases; if (S.screen === "build") drawView(); }, (e) => { S.relError = "Could not load the release list: " + e.message; if (S.screen === "build") drawView(); });
-  const signed = (S.releases || []).filter((r) => r.signed);
+  const releases = (S.releases || []).filter((r) => S.bdBeta || !r.beta);
+  const signed = releases.filter((r) => r.signed);
   const src = S.bdSource || (S.releases && !signed.length ? "backup" : "release");  // the signed download when a release has one
-  const list = src === "release" ? signed : (S.releases || []);
+  const list = src === "release" ? signed : releases;
   const pick = Math.max(0, list.findIndex((r) => !r.beta));  // the newest stable release, else the newest
   const st = S.st, b = st.build, sel = (id, items, empty) => items.length ? `<select id="${id}">${items.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>` : `<input type="text" id="${id}" placeholder="${empty}">`;
   const blocked = src === "release" ? (S.releases && !signed.length ? "No release carries a signed image yet. Build one from your backup instead." : "")
@@ -424,7 +426,8 @@ function viewBuild() {
       ${opt("backup", "Build from my backup", "assembles the image here from the release's assembly bundle and the stock files of your own backup. Needs Docker.")}
     </div>
     ${src === "backup" ? `<label class="f"><span class="lbl">Backup to build from</span><span style="display:flex;gap:8px">${sel("bd-backup", b.backups, "Folder of a finished backup")}<button type="button" class="btn" data-act="browse" data-target="bd-backup" data-kind="folder" style="flex:none;height:40px">Browse…</button></span></label>` : ""}
-    <label class="f"><span class="lbl">Version</span>${S.releases ? (list.length ? `<select id="bd-tag">${list.map((r, i) => `<option value="${esc(r.tag)}" ${i === pick ? "selected" : ""}>${esc(r.tag)}  ${r.beta ? "beta" : "stable"}  ·  ${esc(r.date)}${i === 0 ? "  ·  newest" : ""}${i === pick && !r.beta ? "  ·  recommended" : ""}</option>`).join("")}</select><span class="mut" style="font-size:12.5px">${list.some((r) => !r.beta) ? "Stable releases are tested; beta ones are pre-releases. The newest stable one is selected." : "Every release is still a beta; the newest is selected."}</span>` : `<span class="mut">No release to choose.</span>`) : `<span class="mut">${S.relError ? esc(S.relError) : "Loading the release list from GitHub…"}</span>`}</label>
+    <label class="chk"><input type="checkbox" data-act="bd-beta" ${S.bdBeta ? "checked" : ""}><span>Include beta releases</span></label>
+    <label class="f"><span class="lbl">Version</span>${S.releases ? (list.length ? `<select id="bd-tag">${list.map((r, i) => `<option value="${esc(r.tag)}" ${i === pick ? "selected" : ""}>${esc(r.tag)}  ${r.beta ? "beta" : "stable"}  ·  ${esc(r.date)}${i === 0 ? "  ·  newest" : ""}${i === pick && !r.beta ? "  ·  recommended" : ""}</option>`).join("")}</select><span class="mut" style="font-size:12.5px">${list.some((r) => !r.beta) ? "Stable releases are tested; beta ones are pre-releases. The newest stable one is selected." : "Showing beta releases; the newest is selected."}</span>` : `<span class="mut">No matching release. Enable beta releases or refresh versions.</span>`) : `<span class="mut">${S.relError ? esc(S.relError) : "Loading the release list from GitHub…"}</span>`}</label>
     <div><button type="button" class="btn" data-act="refresh-releases">Refresh versions</button></div>
     ${blocked ? `<div class="warn">${esc(blocked)}</div>` : ""}
     <div><button class="primary" id="bd-go" data-act="build" ${busy() || blocked || !list.length ? "disabled" : ""}>${src === "release" ? "Download image" : "Build image"}</button></div>
@@ -433,7 +436,7 @@ function viewBuild() {
 }
 const WRITES = ["flash", "access"];
 const RISK = {
-  flash: ["Flash OpenWrt", "A rehearsal first (write the image, read it back, compare), then the real write to slot A.", ["I have a finished, verified backup of this unit (if not, cancel and take one first with Backup)", "I will keep the modem powered and the USB cable connected until it finishes", "The tool will ask you to type an exact phrase and to power-cycle the modem; I will do both myself", "No UART log is kept during a flash; start the UART monitor separately to watch the boot", "Without a rehearsal the first write to slot A is the real one", "The flash checks only the slot it writes (read back and compared); it does not read the rest of the board before or after"]],
+  flash: ["Flash OpenWrt", "A rehearsal first (write the image, read it back, compare), then the real write to the selected slot.", ["I have a finished, verified backup of this unit (if not, cancel and take one first with Backup)", "I will keep the modem powered and the USB cable connected until it finishes", "The tool will ask you to type an exact phrase and to power-cycle the modem; I will do both myself", "No UART log is kept during a flash; start the UART monitor separately to watch the boot", "Without a rehearsal the first write to the selected slot is the real one", "The flash checks only the slot it writes (read back and compared); it does not read the rest of the board before or after"]],
   access: ["Root access", "Reads a fresh snapshot of slot B from the modem (about 130 MiB), builds a key-only SSH image from it, rehearses, then writes it. Only the overlay tail of rootfs_b changes.", ["The modem is idle and stays on stable power; the snapshot is read just before the write", "I will keep the modem powered and the USB cable connected until it finishes"]],
 };
 const leaf = (p) => p.split("/").filter(Boolean).pop();
@@ -445,8 +448,8 @@ function flashForm() {
   return `<div class="box" style="padding:18px;display:grid;gap:14px;max-width:760px">
     <div><span class="lbl">Slot to flash</span>
       <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
-        <label class="chk" style="border:1px solid var(--acc);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="a" checked><span><b>Slot A</b> · the image slot. Stock stays on slot B as the fallback. Needs the Boot order step afterwards.</span></label>
-        <label class="chk" style="border:1px solid var(--line);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="b"><span><b>Slot B</b> · the slot the modem boots now. Replaces what runs there, needs no SSH and no Boot order step; the backup must show the modem booting B, and slot A (stock) stays as the fallback.</span></label>
+        <label class="chk" style="border:1px solid var(--acc);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="a" checked><span><b>Slot A</b> · replaces the image in A, even if A is selected to boot. Slot B and boot order stay unchanged.</span></label>
+        <label class="chk" style="border:1px solid var(--line);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="b"><span><b>Slot B</b> · replaces the image in B, even if A is selected to boot. Slot A and boot order stay unchanged. Select B in Boot order afterwards if needed.</span></label>
       </div></div>
     <label class="f"><span class="lbl">Image to flash</span><select id="fl-image">${optionList(b.images, imageLabel)}</select></label>
     <label class="f"><span class="lbl">Backup of this unit</span><span style="display:flex;gap:8px"><select id="fl-backup">${optionList(b.backups, (v) => v)}</select><button type="button" class="btn" data-act="browse" data-target="fl-backup" data-kind="folder" style="flex:none;height:40px">Browse…</button></span></label>
@@ -582,6 +585,7 @@ document.addEventListener("click", async (e) => {
   if (a === "pw-next") return pwNext();
   if (a === "pw-cancel") { if (S.pw && S.pw.timer) clearInterval(S.pw.timer); S.pw = null; return go("home"); }
   if (a === "backup") return openPower("backup", { out: $("#bk-out").value, loader: $("#bk-loader")?.value, twice: $("#bk-twice").checked });
+  if (a === "bd-beta") { S.bdBeta = t.checked; return drawView(); }
   if (a === "bd-source") { S.bdSource = t.value; return drawView(); }
   if (a === "build") {
     const source = document.querySelector('input[name="bd-source"]:checked')?.value || "backup";

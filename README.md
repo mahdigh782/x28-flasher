@@ -36,7 +36,7 @@ hash-checked.
 | **Root access** | Reads a snapshot of slot B and writes key-only SSH (port 22) into it; once, on a fresh unit | **yes** |
 | **Read & verify** | Re-reads a partition and compares it with the backup | no |
 | **Get an image** | Downloads a release's signed image (checked against the X28 signing key), or assembles one from your own unit's backup plus a firmware release | no |
-| **Flash OpenWrt** | Writes slot A (slot B, stock, is locked) behind a dry run and an equality gate | **yes** |
+| **Flash OpenWrt** | Writes your selected slot, A or B, with image validation and read-back verification; boot selection does not restrict the target | **yes** |
 | **Boot order** | A/B switch for the slot that boots next, over SSH on the running modem | **yes** |
 | **UART monitor** | Captures the serial console to a log the guarded tools require | no |
 
@@ -56,6 +56,11 @@ that job ran; otherwise [build it](#build-the-binary-and-the-packages) on a Mac.
 
 On a Mac the app has its own window; on Linux it opens the page in your browser. Only this computer can reach the page;
 its **Quit** button stops the flasher.
+
+**Get an image** lists stable releases by default; tick **Include beta releases** to also list pre-releases.
+**Connect device** reads and displays the stored boot slot over USB (not the running OS slot).
+**Flash OpenWrt** lets you write either slot regardless of boot selection; it does not change boot order.
+Writing the selected boot slot replaces the image the modem will try at its next power-up.
 
 **Building an image from your backup** and **Root access** assemble the image in a container, so those two steps need Docker.
 Downloading a release's signed image and flashing it needs none.

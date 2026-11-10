@@ -36,6 +36,18 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(device_info.read_state(d)["flashtype"], "nand")
         self.assertEqual(device_info.read_state(d / "none"), {})
 
+    def test_boot_selection_reads_all_four_misc_copies(self):
+        for slot, record in (("a", "0f0000000e000101"), ("b", "0e0001010f000101")):
+            data = bytearray(b'\xff' * 0x100000)
+            for k in range(4):
+                off = 0x800 + k * 0x40000
+                data[off:off + 16] = bytes.fromhex('00414230ffffffff' + record)
+            self.assertEqual(device_info.selected_boot_slot(data), slot)
+            data[0x800 + 3 * 0x40000 + 8] ^= 1
+            self.assertIsNone(device_info.selected_boot_slot(data))
+        for data in (None, b'', b'\xff' * 0x100000):
+            self.assertIsNone(device_info.selected_boot_slot(data))
+
     def test_erased_and_key_pages_give_nothing(self):
         self.assertEqual(device_info.identity_values(b"\xff" * 0x3000 + page(b"imei", b"\x00" * 10)), [])
 
