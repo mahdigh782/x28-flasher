@@ -1,4 +1,4 @@
-// The native window of X28 Flasher: starts the backend (the x28-flasher binary next to this one) and shows its page in a
+// The native window of X28 Flasher: starts the backend under Contents/Resources/backend and shows its page in a
 // WKWebView, so there is no browser. Closing the window or quitting stops the backend; the page's Quit button does too.
 import Cocoa
 import WebKit
@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate {
     }
 
     func startBackend() {
-        let exe = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("x28-flasher")
+        let exe = Bundle.main.resourceURL!.appendingPathComponent("backend/x28-flasher")
         let p = Process()
         p.executableURL = exe
         p.environment = ProcessInfo.processInfo.environment.merging(["X28_NO_BROWSER": "1"]) { $1 }

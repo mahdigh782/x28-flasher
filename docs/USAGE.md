@@ -117,6 +117,8 @@ Consult the firmware project's hardware/recovery documentation before wiring an 
 
 | Problem | What to check |
 |---|---|
+| macOS says the app is “damaged” | Download again from the official release and compare the DMG with its `SHA256SUMS-macos-arm64.txt`. Report the version if it persists; this can be a bundle/signature defect, not just a download problem. Do not disable Gatekeeper globally. |
+| macOS blocks an unidentified developer | After attempting to open the app, use System Settings → Privacy & Security → Open Anyway, only for your trusted official download. The app is not Apple-notarized. |
 | Device not found | Use a data cable, a working USB port and stable power; repeat the app's power-off / 10-second wait / power-on sequence. On Windows, check the download interface's WinUSB driver; on Linux, check USB access permissions. |
 | No firmware listed | Refresh versions, optionally include betas, and check whether that release includes a signed image. |
 | Build / Root access fails | Install and start Docker. For Root access, also check `ssh-keygen` is available. |

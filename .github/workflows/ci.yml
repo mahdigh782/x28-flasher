@@ -106,6 +106,13 @@ jobs:
         run: |
           python3 tools/x28-flasher/build_app.py
           hdiutil create -volname "X28 Flasher" -srcfolder "dist/X28 Flasher.app" -ov -format UDZO X28-Flasher-macos-arm64.dmg
+          MOUNT="$(mktemp -d)"
+          trap 'hdiutil detach "$MOUNT"' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" X28-Flasher-macos-arm64.dmg
+          codesign --verify --deep --strict "$MOUNT/X28 Flasher.app"
+          B="$MOUNT/X28 Flasher.app/Contents/Resources/backend/x28-flasher"
+          "$B" --selftest
+          "$B" --run-script "$PWD/tools/x28-flasher/smoke_gui.py"
 
       - name: Installer (Linux .deb)
         if: runner.os == 'Linux'

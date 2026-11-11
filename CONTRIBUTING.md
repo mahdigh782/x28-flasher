@@ -137,6 +137,10 @@ python3 tools/x28-flasher/build_app.py
 hdiutil create -volname "X28 Flasher" -srcfolder "dist/X28 Flasher.app" -ov -format UDZO X28-Flasher-macos-arm64.dmg
 ```
 
+The Mac builder keeps the backend's onedir layout under `Contents/Resources/backend`, then ad-hoc signs and verifies the finished app.
+CI also mounts the generated DMG, verifies the bundled signature and tests that bundled backend. This does **not** provide Developer ID signing or Apple notarization;
+those require the maintainer's Apple credentials. Do not bypass a signature-verification failure to publish a release.
+
 **Linux x86_64** — the package includes the GTK/WebKit launcher and declares its APT dependencies:
 
 ```bash
