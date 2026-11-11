@@ -311,10 +311,16 @@ def build_command(fl, action, params, loader):
             raise ValueError("choose slot A or slot B")
         if params.get("mode") not in ("identical", "write"):
             raise ValueError("choose a rehearsal or the write")
-        if not (Path(str(params.get("candidate") or "")) / "rootfs-a-experimental.bin").is_file():
-            raise ValueError("choose a built image to flash")
+        backup_rootfs = params.get('backup_rootfs')
+        if backup_rootfs is not None:
+            if backup_rootfs not in ('a', 'b') or params.get('candidate') or params.get('base'):
+                raise ValueError('choose backup rootfs A or B, without a built image or base')
+        elif not (Path(str(params.get("candidate") or "")) / "rootfs-a-experimental.bin").is_file():
+            raise ValueError("choose a built/downloaded image or a backup rootfs to flash")
         if problem := wizard.backup_problem(str(params.get("backup") or "")):
             raise ValueError(problem)
+        if backup_rootfs is not None and not next(Path(str(params['backup'])).glob(f'images/*-rootfs_{backup_rootfs}.bin'), None):
+            raise ValueError('the backup has no selected rootfs image')
         if params.get("copy") and not Path(str(params["copy"])).is_file():
             raise ValueError("the second copy of the backup archive was not found")
         if params["mode"] == "write" and params.get("prior") and str(params["prior"]) not in [str(r) for r in wizard.verified_identicals(PRIVATE / "usb-probe", tools=slot_tools_digest())]:
@@ -387,7 +393,7 @@ class App:
                 self.config().set("backup", str(params["out"]).strip())  # Build looks for finished backups here, and beside the usual places
             env = {"X28_RECOVERY": str(self.fl.RECOVERY)}
             if action == "flash":
-                env["X28_FLASH"] = json.dumps({**{k: str(params.get(k) or "") or None for k in ("mode", "candidate", "backup", "copy", "prior", "slot")},
+                env["X28_FLASH"] = json.dumps({**{k: str(params.get(k) or "") or None for k in ("mode", "candidate", "backup", "copy", "prior", "slot", "backup_rootfs")},
                                                "base": None, "no_ssh": True, "no_uart": True, "loader": loader})  # a flash needs neither SSH nor a UART log
             if action == "build":
                 env["X28_BUILD"] = json.dumps({k: str(params.get(k) or "") for k in ("source", "backup", "tag")})

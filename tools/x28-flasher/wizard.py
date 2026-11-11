@@ -42,7 +42,7 @@ if questionary:
                                ("highlighted", "fg:cyan bold"), ("answer", "fg:green bold"), ("instruction", "fg:ansibrightblack")])
 
 MENU = [("Set up UART logger", "uart"), ("Backup", "backup"), ("Build", "build"), ("Test (read-only checks)", "test"),
-        ("Flash slot A (rehearsal or write)", "flash"), ("Auto pilot", "auto"), ("Read one partition and verify it", "read"), ("Quit", "quit")]
+        ("Flash image / restore backup rootfs", "flash"), ("Auto pilot", "auto"), ("Read one partition and verify it", "read"), ("Quit", "quit")]
 
 
 def printable_share(data):
@@ -384,20 +384,27 @@ def flash(fl, ui, cfg, preset=None):
     given = json.loads(os.environ["X28_FLASH"]) if os.environ.get("X28_FLASH") else None  # the page's form: only the typed phrase is asked
     if given:
         backup, loader = given["backup"], given["loader"]
-        preset = {k: given.get(k) for k in ("mode", "candidate", "base", "no_ssh", "no_uart", "slot")}
+        preset = {k: given.get(k) for k in ("mode", "candidate", "base", "no_ssh", "no_uart", "slot", "backup_rootfs")}
     else:
         backup = ask_path(ui, cfg, "backup", "Folder with your verified backup", DEFAULT_BACKUP, True)
         loader = ask_path(ui, cfg, "loader", "Vendor download agent file (DA_BR.bin)", VENDOR_DA, False)
         preset = preset or {}
-    mode = preset.get("mode") or ui.select("Which run?", [("Rehearsal: write the image, read it back, compare (identical)", "identical"),
-                                    ("Write the image (needs a verified rehearsal from the last 24 h)", "write")])
+    mode = preset.get("mode") or ui.select("Which run?", [("Rehearsal: rewrite the target's backup, read it back, compare", "identical"),
+                                    ("Write the selected image (rehearsal optional)", "write")])
     images = [(d.name, str(d)) for d in image_dirs(PRIVATE / "build")]
-    candidate = preset.get("candidate") or (ui.select("Image to flash", images + [("Another folder...", None)]) if images else None)
-    candidate = candidate or ui.text("Folder with the image (package_ubi output)")
-    slot = preset.get("slot") or "a"
-    base = None if slot == "b" else preset["base"] if "base" in preset else ui.select("Image now on slot A (the base)", [("None / not known", None)] + images + [("Another folder...", "other")])
+    backup_rootfs = preset.get('backup_rootfs')
+    manual = not given and not preset.get('candidate') and not backup_rootfs
+    if manual and ui.select('Image source', [('Built/downloaded image', 'image'), ('Rootfs from this backup', 'backup')]) == 'backup':
+        backup_rootfs = ui.select('Backup source rootfs', [('rootfs_a', 'a'), ('rootfs_b', 'b')])
+    candidate = None if backup_rootfs else preset.get("candidate") or (ui.select("Image to flash", images + [("Another folder...", None)]) if images else None)
+    if not backup_rootfs:
+        candidate = candidate or ui.text("Folder with the image (package_ubi output)")
+    slot = preset.get('slot') or (ui.select('Target slot', [('A', 'a'), ('B', 'b')]) if manual else 'a')
+    base = None if slot == "b" or backup_rootfs else preset["base"] if "base" in preset else ui.select("Image now on slot A (the base)", [("None / not known", None)] + images + [("Another folder...", "other")])
     if base == "other":
         base = ui.text("Folder of the image now on slot A")
+    if backup_rootfs:
+        preset.setdefault('no_ssh', True)
     no_ssh = bool(preset["no_ssh"] if "no_ssh" in preset else (not base and ui.confirm(
         "No SSH to this router? Then the USB read of misc replaces the live-slot check; slot A and misc must still equal your backup (stock).", False)))
     no_uart = bool(preset["no_uart"] if "no_uart" in preset else ui.confirm(
@@ -411,11 +418,11 @@ def flash(fl, ui, cfg, preset=None):
             prior = ui.select("Rehearsal to build on", [("None: write without a rehearsal", None)] + [(r.name, str(r)) for r in runs])
         else:
             print("  " + paint("No rehearsal from the last 24 h with this version of the app: this write goes without one.", "dim"))
-    print(f"\n  {mode}: {candidate}" + (f"  base {base}" if base else ""))
+    print(f"\n  {mode}: " + (f'backup rootfs_{backup_rootfs} to slot {slot.upper()}' if backup_rootfs else str(candidate)) + (f"  base {base}" if base else ""))
     if not given and not ui.confirm("Continue to the UART and the typed confirmation?", True):
         return 0
     args = argparse.Namespace(mode=mode, candidate_dir=candidate, base_dir=base, prior_identical=prior,
-                              backup_copy=given.get("copy") if given else None, backup=backup, loader=loader, no_ssh=no_ssh, no_uart=no_uart, slot=slot)
+                              backup_copy=given.get("copy") if given else None, backup=backup, loader=loader, no_ssh=no_ssh, no_uart=no_uart, slot=slot, backup_rootfs=backup_rootfs)
     code = fl.cmd_flash(args, ui)
     print("  " + (good("Done.") if code == 0 else bad(f"Stopped (exit {code}). The run folder above keeps the logs; nothing was retried.")))
     return code

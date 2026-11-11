@@ -29,6 +29,17 @@ class HelperTests(unittest.TestCase):
         receipt(root, "slot-rootfs_a-identical-bad", status="STOP_UNVERIFIED")
         self.assertEqual(wizard.verified_identicals(root), [good])
 
+    def test_gui_backup_rootfs_is_forwarded_without_asking_for_a_built_image(self):
+        calls = []
+        fl = types.SimpleNamespace(cmd_flash=lambda args, ui: calls.append(args) or 0)
+        given = {'backup': '/backup', 'loader': '/loader', 'mode': 'write', 'backup_rootfs': 'b',
+                 'slot': 'a', 'no_ssh': True, 'no_uart': True}
+        with mock.patch.dict(os.environ, {'X28_FLASH': json.dumps(given)}), mock.patch.object(wizard, 'image_dirs', return_value=[]):
+            self.assertEqual(wizard.flash(fl, None, None), 0)
+        self.assertEqual((calls[0].backup_rootfs, calls[0].slot), ('b', 'a'))
+        self.assertIsNone(calls[0].candidate_dir)
+        self.assertIsNone(calls[0].base_dir)
+
     def test_image_dirs_need_the_flashable_file(self):
         root = Path(tempfile.mkdtemp())
         (root / "native-ubi-1").mkdir()

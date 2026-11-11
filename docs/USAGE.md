@@ -25,7 +25,7 @@ Only one job runs at a time; changing pages does not stop it. Closing the window
 | Connect device | Read board information and stored boot selection | No |
 | Backup | Save and verify all partitions | No |
 | Get an image | Download a signed image, or build from a backup | No |
-| Flash OpenWrt | Replace the image in your selected slot, A or B | **Yes**, including a rehearsal |
+| Flash OpenWrt | Write a built/downloaded image or restore a backup rootfs to A or B | **Yes**, including a rehearsal |
 | Boot order | Choose the slot for the next power-up, over SSH | **Yes**, boot-selection records |
 | Root access | Add key-only SSH to supported stock firmware in slot B | **Yes**, slot B's overlay tail |
 | Read & verify | Compare a partition with its backed-up contents | No |
@@ -62,7 +62,7 @@ If the list is empty, try that checkbox and **Refresh versions**. A signed downl
 
 ## Flash OpenWrt
 
-1. Select the image and your verified backup.
+1. Select **Built / downloaded image**, then the image and your verified backup. To use saved firmware instead, choose **Rootfs from a verified backup** as described below.
 2. Choose **slot A or B** deliberately. A/B are slot names, not a guarantee that one still contains stock firmware.
 3. Decide whether to rehearse. **Rehearsal is a real write of the backed-up image**, followed by read-back comparison; it does not install the new firmware.
 4. For the actual firmware write, turn **Rehearsal off**. Accept the risk checklist and type the exact phrase shown by the tool.
@@ -77,6 +77,26 @@ They do **not** require the existing target to match the old backup or compare a
 A rehearsal is optional, not an automatic dry run before every flash. The tools do not retry or reboot the modem automatically.
 
 A stopped write is not a successful flash. Keep its run folder and logs; follow the [troubleshooting notes](#troubleshooting) rather than retrying blindly.
+
+### Restore a backup rootfs
+
+To return to saved firmware, including vendor firmware when your backup contains it:
+
+1. Open **Flash OpenWrt** and choose **Rootfs from a verified backup**.
+2. Select the **complete, verified backup folder from this unit**—the normal Backup output with its images and checksums, not just a loose `.bin` or tar file.
+3. Choose source **`rootfs_a` or `rootfs_b`**, then independently choose target **A or B**. For example, saved `rootfs_b` can be written back to B or copied to A.
+4. Accept the checklist and type the phrase naming the target, image hash and backup source. Wait for successful read-back verification.
+
+This source option needs no built-image manifest or Docker. The tool checks backup integrity/layout, source size/hash, loader and live unit identity.
+It writes the exact captured rootfs bytes and settings, even if the current target differs from the backup. It does not change boot selection.
+
+**This is a rootfs-only restore, not a full NAND recovery.** Boot-chain, calibration and other partitions stay untouched.
+A backup containing OpenWrt restores OpenWrt, not vendor firmware; use your original vendor backup to go back to vendor.
+Old network settings and SSH configuration are restored too, which may remove keys you added later.
+If boot-chain or other partitions were changed, restoring a rootfs alone may not be sufficient to boot vendor firmware.
+
+The desktop backup-source option performs the actual write directly, without the built-image rehearsal switch. All writes still require explicit confirmation.
+For any stopped write, preserve logs and consult recovery guidance rather than retrying blindly.
 
 ## Boot order
 

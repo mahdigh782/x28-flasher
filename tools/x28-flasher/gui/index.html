@@ -117,7 +117,7 @@ const MENU = [
   ["backup", "Backup", "Save every partition on the board to this computer. Do this first."],
   ["access", "Root access", "Root SSH (key only, port 22) on the stock firmware in slot B, with the key you choose or a new one. Builds from a slot B image, rehearses, then writes."],
   ["build", "Get an image", "Downloads a release's signed image, or builds one from the release's assembly bundle and your backup."],
-  ["flash", "Flash OpenWrt", "Rehearse, then write an image to either slot. Image checks and typed confirmation stay."],
+  ["flash", "Flash OpenWrt", "Write a built/downloaded image or restore a backup rootfs to either slot. Boot order stays unchanged."],
   ["boot", "Boot order", "Choose which slot the modem boots: A (OpenWrt) or B (vendor firmware). Over SSH on the running modem."],
   ["read", "Read & verify", "Read one partition from the board and compare it with your backup. Writes nothing."],
   ["uart", "UART monitor", "Capture the serial console to a log. A flash needs it unless you have no adapter."],
@@ -436,25 +436,31 @@ function viewBuild() {
 }
 const WRITES = ["flash", "access"];
 const RISK = {
-  flash: ["Flash OpenWrt", "A rehearsal first (write the image, read it back, compare), then the real write to the selected slot.", ["I have a finished, verified backup of this unit (if not, cancel and take one first with Backup)", "I will keep the modem powered and the USB cable connected until it finishes", "The tool will ask you to type an exact phrase and to power-cycle the modem; I will do both myself", "No UART log is kept during a flash; start the UART monitor separately to watch the boot", "Without a rehearsal the first write to the selected slot is the real one", "The flash checks only the slot it writes (read back and compared); it does not read the rest of the board before or after"]],
+  flash: ["Flash OpenWrt", "Choose a built/downloaded image or a verified backup rootfs, then write the selected slot.", ["I have a finished, verified backup of this unit (if not, cancel and take one first with Backup)", "I will keep the modem powered and the USB cable connected until it finishes", "The tool will ask you to type an exact phrase and to power-cycle the modem; I will do both myself", "No UART log is kept during a flash; start the UART monitor separately to watch the boot", "Without a rehearsal the first write to the selected slot is the real one", "The flash checks only the slot it writes (read back and compared); it does not read the rest of the board before or after"]],
   access: ["Root access", "Reads a fresh snapshot of slot B from the modem (about 130 MiB), builds a key-only SSH image from it, rehearses, then writes it. Only the overlay tail of rootfs_b changes.", ["The modem is idle and stays on stable power; the snapshot is read just before the write", "I will keep the modem powered and the USB cable connected until it finishes"]],
 };
 const leaf = (p) => p.split("/").filter(Boolean).pop();
 const imageLabel = (p, i) => { const m = leaf(p).match(/(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)$/); return m ? `Built ${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}${i === 0 ? "  ·  newest" : ""}` : leaf(p); };
-const optionList = (items, label = leaf) => items.map((v, i) => `<option value="${esc(v)}">${esc(label(v, i))}</option>`).join("");
+const optionList = (items, label = leaf, selected) => items.map((v, i) => `<option value="${esc(v)}" ${v === selected ? "selected" : ""}>${esc(label(v, i))}</option>`).join("");
 function flashForm() {
-  const st = S.st, b = st.build;
-  const blocked = !b.images.length ? "No built image yet. Build one first." : !b.backups.length ? "No finished backup found. Take a backup first (Backup in the sidebar); a failed flash is undone from it." : "";
+  const st = S.st, b = st.build, saved = S.flSource === "backup";
+  const blocked = !saved && !b.images.length ? "No built/downloaded image yet. Get an image first, or choose a backup rootfs." : "";
   return `<div class="box" style="padding:18px;display:grid;gap:14px;max-width:760px">
-    <div><span class="lbl">Slot to flash</span>
+    <div><span class="lbl">Image source</span>
+      <label class="chk"><input type="radio" name="fl-source" value="image" data-act="fl-source" ${saved ? "" : "checked"}><span>Built / downloaded image</span></label>
+      <label class="chk"><input type="radio" name="fl-source" value="backup" data-act="fl-source" ${saved ? "checked" : ""}><span>Rootfs from a verified backup (restore saved firmware)</span></label>
+    </div>
+    <div><span class="lbl">Target slot to write</span>
       <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
-        <label class="chk" style="border:1px solid var(--acc);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="a" checked><span><b>Slot A</b> · replaces the image in A, even if A is selected to boot. Slot B and boot order stay unchanged.</span></label>
-        <label class="chk" style="border:1px solid var(--line);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="b"><span><b>Slot B</b> · replaces the image in B, even if A is selected to boot. Slot A and boot order stay unchanged. Select B in Boot order afterwards if needed.</span></label>
+        <label class="chk" style="border:1px solid var(--acc);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="a" ${S.flSlot === "b" ? "" : "checked"}><span><b>Slot A</b> · replaces the image in A, even if A is selected to boot. Slot B and boot order stay unchanged.</span></label>
+        <label class="chk" style="border:1px solid var(--line);border-radius:10px;padding:10px 14px"><input type="radio" name="fl-slot" value="b" ${S.flSlot === "b" ? "checked" : ""}><span><b>Slot B</b> · replaces the image in B, even if A is selected to boot. Slot A and boot order stay unchanged. Select B in Boot order afterwards if needed.</span></label>
       </div></div>
-    <label class="f"><span class="lbl">Image to flash</span><select id="fl-image">${optionList(b.images, imageLabel)}</select></label>
-    <label class="f"><span class="lbl">Backup of this unit</span><span style="display:flex;gap:8px"><select id="fl-backup">${optionList(b.backups, (v) => v)}</select><button type="button" class="btn" data-act="browse" data-target="fl-backup" data-kind="folder" style="flex:none;height:40px">Browse…</button></span></label>
-    <label class="chk"><input class="sw" type="checkbox" id="fl-rehearse" checked><span><b>Rehearsal</b> · write the unit's own original back, read it back and compare: it proves the path before the real write. Optional; turn it off for the real write${b.stale_rehearsals && !b.rehearsals.length ? " (your last rehearsal was made with an older version of the app)" : ""}.</span></label>
-    ${b.rehearsals.length ? `<label class="f" id="fl-prior-row" style="display:none"><span class="lbl">Rehearsal the write builds on (verified, from the last 24 h)</span><select id="fl-prior"><option value="">None: write without a rehearsal</option>${optionList(b.rehearsals)}</select></label>` : ""}
+    ${saved ? `<label class="f"><span class="lbl">Source rootfs in the backup</span><select id="fl-backup-rootfs"><option value="a" ${S.flBackupRootfs === "b" ? "" : "selected"}>rootfs_a</option><option value="b" ${S.flBackupRootfs === "b" ? "selected" : ""}>rootfs_b</option></select></label>
+      <p class="mut">Writes the exact saved rootfs and its settings. To return to vendor firmware, use this unit's original vendor backup. This is not a full-device restore; boot order and other partitions stay unchanged.</p>`
+      : `<label class="f"><span class="lbl">Image to flash</span><select id="fl-image">${optionList(b.images, imageLabel, S.flImage)}</select></label>`}
+    <label class="f"><span class="lbl">Verified backup of this unit${saved ? " (image source)" : ""}</span><span style="display:flex;gap:8px"><input type="text" id="fl-backup" list="fl-backups" value="${esc(S.flBackup ?? b.backups[0] ?? "")}" placeholder="Folder of your complete verified backup"><datalist id="fl-backups">${optionList(b.backups, (v) => v)}</datalist><button type="button" class="btn" data-act="browse" data-target="fl-backup" data-kind="folder" style="flex:none;height:40px">Browse…</button></span></label>
+    ${saved ? "" : `<label class="chk"><input class="sw" type="checkbox" id="fl-rehearse" checked><span><b>Rehearsal</b> · write the unit's own original back, read it back and compare: it proves the path before the real write. Optional; turn it off for the real write${b.stale_rehearsals && !b.rehearsals.length ? " (your last rehearsal was made with an older version of the app)" : ""}.</span></label>`}
+    ${!saved && b.rehearsals.length ? `<label class="f" id="fl-prior-row" style="display:none"><span class="lbl">Rehearsal the write builds on (verified, from the last 24 h)</span><select id="fl-prior"><option value="">None: write without a rehearsal</option>${optionList(b.rehearsals)}</select></label>` : ""}
     ${blocked ? `<div class="warn">${esc(blocked)}</div>` : ""}
     <div><button class="primary" data-act="confirm-write" ${blocked || busy() ? "disabled" : ""}>Start…</button></div>
   </div>`;
@@ -586,6 +592,14 @@ document.addEventListener("click", async (e) => {
   if (a === "pw-cancel") { if (S.pw && S.pw.timer) clearInterval(S.pw.timer); S.pw = null; return go("home"); }
   if (a === "backup") return openPower("backup", { out: $("#bk-out").value, loader: $("#bk-loader")?.value, twice: $("#bk-twice").checked });
   if (a === "bd-beta") { S.bdBeta = t.checked; return drawView(); }
+  if (a === "fl-source") {
+    S.flSlot = document.querySelector('input[name="fl-slot"]:checked')?.value || "a";
+    S.flBackup = $("#fl-backup").value;
+    S.flImage = $("#fl-image")?.value || S.flImage;
+    S.flBackupRootfs = $("#fl-backup-rootfs")?.value || S.flBackupRootfs;
+    S.flSource = t.value;
+    return drawView();
+  }
   if (a === "bd-source") { S.bdSource = t.value; return drawView(); }
   if (a === "build") {
     const source = document.querySelector('input[name="bd-source"]:checked')?.value || "backup";
@@ -612,7 +626,11 @@ document.addEventListener("click", async (e) => {
     S.job = null;
     const params = { accept: true };
     if (t.dataset.run === "flash") {
-      Object.assign(params, { slot: (document.querySelector("input[name=fl-slot]:checked") || {}).value || "a", candidate: $("#fl-image").value, backup: $("#fl-backup").value, mode: $("#fl-rehearse").checked ? "identical" : "write", prior: $("#fl-prior")?.value || "" });
+      Object.assign(params, { slot: document.querySelector('input[name="fl-slot"]:checked')?.value || "a", candidate: $("#fl-image")?.value || "", backup_rootfs: $("#fl-backup-rootfs")?.value || null, backup: $("#fl-backup").value.trim(), mode: $("#fl-rehearse")?.checked ? "identical" : "write", prior: $("#fl-prior")?.value || "" });
+      try {
+        const { problem } = await api("/api/check_backup", { path: params.backup });
+        if (problem) return alert(problem);
+      } catch (er) { return alert(er.message); }
     }
     return openPower(t.dataset.run, params);  // Power off and 10 s first; the job starts when they end
   }

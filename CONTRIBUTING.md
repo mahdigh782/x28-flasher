@@ -70,7 +70,8 @@ Tests are standalone Python files. Run a relevant file while working, for exampl
 ```bash
 python3 tools/x28-flasher/test_gui.py
 python3 tools/recovery/test_slot_session.py
-node tools/x28-flasher/gui/test_releases.cjs  # release-list rendering; requires Node.js
+node tools/x28-flasher/gui/test_releases.cjs  # UI rendering tests require Node.js
+node tools/x28-flasher/gui/test_flash.cjs
 ```
 
 Image-assembly tests also need the firmware's package files. Download an `x28-assembly-*.tar.gz` asset from a
@@ -164,7 +165,8 @@ Build output (`dist/`, `build-x28-flasher/`, `bh/`) and private data are git-ign
 ## Safety rules for changes
 
 - Keep input validation, unit/loader identity checks, typed confirmation, write acknowledgement and read-back verification intact.
-- Never turn a rehearsal into a silent real-image write. A rehearsal itself writes the backed-up image.
+- Never turn a rehearsal into a silent real-image write. A rehearsal itself writes the target's backed-up image.
+- Backup-rootfs writes use `--backup-rootfs a|b` with the verified `--backup` folder, independently of target `--slot`. Built images use `--candidate-dir` instead. Keep both sources mutually exclusive and bind backup restores to exact checked bytes; vendor layouts need not match the native-image builder's UBI schema.
 - Do not add automatic write retries, slot switches or reboots after failures.
 - Plain desktop A/B flashes intentionally use target read-back checks without requiring the old contents to equal the backup. Do not confuse this with recovery tools' stronger checks.
 - Preserve errors and write-attempt journals. For receipt-bound operations, changing recovery tools invalidates earlier tool identities; do not edit them mid-chain.
