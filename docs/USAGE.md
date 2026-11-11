@@ -117,14 +117,16 @@ Consult the firmware project's hardware/recovery documentation before wiring an 
 
 | Problem | What to check |
 |---|---|
+| macOS says the app is “damaged” | Download again from the official release and compare the DMG with its `SHA256SUMS-macos-arm64.txt`. Report the version if it persists; this can be a bundle/signature defect, not just a download problem. Do not disable Gatekeeper globally. |
+| macOS blocks an unidentified developer | After attempting to open the app, use System Settings → Privacy & Security → Open Anyway, only for your trusted official download. The app is not Apple-notarized. |
 | Device not found | Use a data cable, a working USB port and stable power; repeat the app's power-off / 10-second wait / power-on sequence. On Windows, check the download interface's WinUSB driver; on Linux, check USB access permissions. |
 | No firmware listed | Refresh versions, optionally include betas, and check whether that release includes a signed image. |
 | Build / Root access fails | Install and start Docker. For Root access, also check `ssh-keygen` is available. |
 | Boot order cannot connect | The modem must be booted normally and reachable by root SSH; verify its address, SSH key or password and the host's OpenSSH client. |
 | A write stopped | Keep the run folder and logs. Do not blindly retry, change boot order or reboot. Check the firmware [recovery guide](https://github.com/mralinp/zlt-x28-openwrt/blob/main/docs/RECOVERY.md) and report the exact error with identifiers/secrets redacted. |
 
-Keep backups in the output folder you selected. Packaged USB run records are normally under **`~/x28-flasher/usb-probe/`**;
-Windows uses your user home folder. The job output prints the exact paths. Desktop startup logs are:
+Keep backups in the output folder you selected. New packaged backups default to **`~/x28-flasher/backups/`**;
+USB run records and UART logs use **`~/x28-flasher/usb-probe/`**. Windows uses your user home folder. The job output prints the exact paths. Desktop startup logs are:
 
 - **Windows:** `%LOCALAPPDATA%\X28 Flasher\native.log`
 - **Linux:** `${XDG_STATE_HOME:-~/.local/state}/x28-flasher/native.log`
