@@ -110,7 +110,7 @@ git -C bh/src -c advice.detachedHead=false -c core.autocrlf=false checkout -q FE
 python3 -m venv bh/venv
 PY=bh/venv/bin/python
 # On Windows instead: PY=bh/venv/Scripts/python
-"$PY" -m pip install pycryptodome pycryptodomex pyserial pyusb colorama questionary pyinstaller
+"$PY" -m pip install pycryptodome pycryptodomex pyserial pyusb colorama questionary certifi pyinstaller
 # Windows also needs: "$PY" -m pip install libusb pywinpty==3.1.2
 ```
 
@@ -124,6 +124,7 @@ B=dist/x28-flasher/x28-flasher
 # On Windows instead: B=dist/x28-flasher/x28-flasher.exe
 "$B" --selftest
 "$B" --run-script tools/x28-flasher/smoke_gui.py
+"$B" --run-script tools/x28-flasher/smoke_https.py  # checks bundled CA roots against GitHub; needs internet
 ```
 
 These smoke tests do not flash hardware. Close an existing app/session before testing packaged launchers.

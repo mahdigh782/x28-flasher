@@ -4,6 +4,7 @@ import io
 import json
 import re
 import shutil
+import ssl
 import sys
 import tarfile
 import time
@@ -21,8 +22,15 @@ def sha256(data):
 
 
 def get(url):
-    with urllib.request.urlopen(url, timeout=60) as r:
-        return r.read()
+    try:
+        context = ssl.create_default_context()
+        if getattr(sys, 'frozen', False):
+            import certifi
+            context.load_verify_locations(certifi.where())  # build-machine certificate paths do not exist on users' computers
+        with urllib.request.urlopen(url, timeout=60, context=context) as r:
+            return r.read()
+    except OSError as error:
+        raise RuntimeError(f'Could not download {url}: {error}') from error
 
 
 UNSUPPORTED_UP_TO = (0, 53, 3)  # releases up to and including v0.53.3 are not supported; the next version is the first one

@@ -85,7 +85,7 @@ jobs:
           git -C bh/src fetch -q --depth 1 https://github.com/bkerler/mtkclient.git "$COMMIT"
           git -C bh/src -c advice.detachedHead=false -c core.autocrlf=false checkout -q FETCH_HEAD  # LF on Windows too: the bundled library is hashed
           python3 -m venv bh/venv
-          ${{ matrix.py }} -m pip install -q pycryptodome pycryptodomex pyserial pyusb colorama questionary pyinstaller
+          ${{ matrix.py }} -m pip install -q pycryptodome pycryptodomex pyserial pyusb colorama questionary certifi pyinstaller
           if [ "$RUNNER_OS" = Windows ]; then ${{ matrix.py }} -m pip install -q libusb pywinpty==3.1.2; fi
 
       - name: Build
@@ -97,6 +97,7 @@ jobs:
           [ "$RUNNER_OS" = Windows ] && B=$B.exe
           "$B" --selftest
           "$B" --run-script tools/x28-flasher/smoke_gui.py
+          "$B" --run-script tools/x28-flasher/smoke_https.py
           want="$(python3 -c "import json; print(json.load(open('dist/x28-flasher/_internal/identity.json'))['xml_lib_sha256'])")"
           test "$("$B" identity | tr -d '\r')" = "$want"
           test -s dist/x28-flasher/_internal/vendor-da/DA_BR.bin  # the download agent is inside: nothing to fetch after installing
