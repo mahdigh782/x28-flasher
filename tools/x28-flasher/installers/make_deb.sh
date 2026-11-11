@@ -6,14 +6,22 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 root=$(mktemp -d)
 mkdir -p "$root/DEBIAN" "$root/opt/x28-flasher" "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/512x512/apps"
 cp -R "$dist/x28-flasher/." "$root/opt/x28-flasher/"
-ln -s /opt/x28-flasher/x28-flasher "$root/usr/bin/x28-flasher"
+install -m 755 "$here/native/linux.py" "$root/opt/x28-flasher/x28-flasher-window"
+cat > "$root/usr/bin/x28-flasher" <<'D'
+#!/bin/sh
+case "${1-}" in
+  ''|gui) exec /opt/x28-flasher/x28-flasher-window ;;
+  *) exec /opt/x28-flasher/x28-flasher "$@" ;;
+esac
+D
+chmod 755 "$root/usr/bin/x28-flasher"
 cp "$here/assets/icon-512.png" "$root/usr/share/icons/hicolor/512x512/apps/x28-flasher.png"
 cat > "$root/usr/share/applications/x28-flasher.desktop" <<D
 [Desktop Entry]
 Type=Application
 Name=X28 Flasher
 Comment=Back up and flash the ZLT X28 modem
-Exec=/opt/x28-flasher/x28-flasher
+Exec=/usr/bin/x28-flasher
 Icon=x28-flasher
 Categories=Utility;
 Terminal=false
@@ -23,7 +31,7 @@ Package: x28-flasher
 Version: $version
 Architecture: amd64
 Maintainer: mralinp
-Depends: libusb-1.0-0, openssh-client
+Depends: libusb-1.0-0, openssh-client, python3, python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1
 Description: Back up, build and flash the ZLT X28 5G modem over USB
 D
 dpkg-deb --root-owner-group --build "$root" "$out"
