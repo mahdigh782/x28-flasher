@@ -219,6 +219,14 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/job", post, b'{"action":"test"}')[0], 403)  # no Origin
         self.assertEqual(self.call("POST", "/api/job", {**post, "Origin": "http://evil.example"}, b'{"action":"test"}')[0], 403)
 
+    def test_release_network_failure_returns_json_instead_of_dropping_the_connection(self):
+        origin = f"http://127.0.0.1:{self.app.port}"
+        with unittest.mock.patch('images.releases', side_effect=RuntimeError('Could not download: certificate verify failed')):
+            status, body, _ = self.call('POST', '/api/releases',
+                                       {'Cookie': f'x28={self.app.token}', 'Origin': origin}, b'{}')
+        self.assertEqual(status, 409)
+        self.assertIn('certificate verify failed', json.loads(body)['error'])
+
     def test_unknown_action_is_rejected_with_a_reason(self):
         origin = f"http://127.0.0.1:{self.app.port}"
         status, body, _ = self.call("POST", "/api/job", {"Cookie": f"x28={self.app.token}", "Origin": origin}, b'{"action":"nope"}')

@@ -4,7 +4,7 @@
     python build_binary.py --home BUILD_HOME
 
 BUILD_HOME/src is a checkout of the pinned mtkclient commit and BUILD_HOME/venv a venv (run this with its Python) that has
-pycryptodome, pycryptodomex, pyserial, pyusb, colorama, questionary and pyinstaller installed. mtkclient is installed from src without its
+pycryptodome, pycryptodomex, pyserial, pyusb, colorama, questionary, certifi and pyinstaller installed. mtkclient is installed from src without its
 GUI dependencies (PySide6) and patched with setup_mtkclient.PATCHES; the developer identity check then has to accept it, and the
 SHA-256 of the patched XML library is embedded as identity.json for the frozen identity check.
 """
@@ -78,7 +78,7 @@ def main():
     work = args.out.resolve().parent / "build-x28-flasher"
     work.mkdir(parents=True, exist_ok=True)
     from importlib.metadata import version
-    tools = {n: version(n) for n in ("pyinstaller", "pyusb", "pycryptodome", "pycryptodomex", "pyserial", "colorama", "questionary", "prompt_toolkit")}
+    tools = {n: version(n) for n in ("pyinstaller", "pyusb", "pycryptodome", "pycryptodomex", "pyserial", "colorama", "questionary", "prompt_toolkit", "certifi")}
     (work / "identity.json").write_text(json.dumps({"version": args.version, "commit": MTKCLIENT_COMMIT, "xml_lib_sha256": hashlib.sha256(xml.encode()).hexdigest(),
                                                     "python": sys.version.split()[0], "build_tools": tools}, indent=1))
     data = [(work / "identity.json", "."), (pkg.parent / XML, str(Path(XML).parent))]
@@ -100,7 +100,7 @@ def main():
     data += [(work / "DA_BR.bin", "vendor-da")]
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--name", "x28-flasher",
            "--distpath", args.out, "--workpath", work, "--specpath", work, "--exclude-module", "PySide6", "--exclude-module", "mtkclient.gui",
-           "--collect-data", "mtkclient", "--collect-binaries", "usb"]
+           "--collect-data", "mtkclient", "--collect-data", "certifi", "--copy-metadata", "certifi", "--collect-binaries", "usb"]
     if os.name == "nt":
         cmd += ["--collect-all", "winpty"]  # ConPTY and its native extension ship inside the Windows installer
     for pkg_name in ("mtkclient", "usb", "serial", "Crypto", "Cryptodome", "colorama", "questionary", "prompt_toolkit"):
