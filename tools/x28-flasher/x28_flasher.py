@@ -85,13 +85,13 @@ SESSION = {}  # the one running logger: the serial port can be opened only once,
 
 
 def default_backup_dir():
-    """Beside the binary, named with the time; a source checkout keeps backups under private/."""
-    return (Path(sys.executable).parent if FROZEN else PRIVATE / "backups") / time.strftime("x28-backup-%Y%m%d-%H%M%S")
+    """Keep generated data outside the installed executable and signed app bundle."""
+    return PRIVATE / "backups" / time.strftime("x28-backup-%Y%m%d-%H%M%S")
 
 
 def log_dir():
-    """Beside the binary; a source checkout keeps it with the other run records."""
-    return Path(sys.executable).parent if FROZEN else PRIVATE / "usb-probe"
+    """UART logs belong with writable run records, never inside the app bundle."""
+    return PRIVATE / "usb-probe"
 
 
 def start_capture(ui=None):
@@ -247,6 +247,8 @@ def cmd_ports(args):
 
 
 def selftest():
+    assert default_backup_dir().parent == PRIVATE / "backups"
+    assert log_dir() == PRIVATE / "usb-probe"
     answers = iter(["", "x", "2"])
     assert pick(["a", "b"], "thing", lambda _: next(answers)) == "a"
     assert pick(["a", "b"], "thing", lambda _: next(answers)) == "b"

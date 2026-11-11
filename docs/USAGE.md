@@ -125,8 +125,8 @@ Consult the firmware project's hardware/recovery documentation before wiring an 
 | Boot order cannot connect | The modem must be booted normally and reachable by root SSH; verify its address, SSH key or password and the host's OpenSSH client. |
 | A write stopped | Keep the run folder and logs. Do not blindly retry, change boot order or reboot. Check the firmware [recovery guide](https://github.com/mralinp/zlt-x28-openwrt/blob/main/docs/RECOVERY.md) and report the exact error with identifiers/secrets redacted. |
 
-Keep backups in the output folder you selected. Packaged USB run records are normally under **`~/x28-flasher/usb-probe/`**;
-Windows uses your user home folder. The job output prints the exact paths. Desktop startup logs are:
+Keep backups in the output folder you selected. New packaged backups default to **`~/x28-flasher/backups/`**;
+USB run records and UART logs use **`~/x28-flasher/usb-probe/`**. Windows uses your user home folder. The job output prints the exact paths. Desktop startup logs are:
 
 - **Windows:** `%LOCALAPPDATA%\X28 Flasher\native.log`
 - **Linux:** `${XDG_STATE_HOME:-~/.local/state}/x28-flasher/native.log`
