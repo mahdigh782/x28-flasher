@@ -133,7 +133,11 @@ def stop_capture():
 
 def flash_cmd(args, uart, backup_copy):
     slot = getattr(args, "slot", None) or "a"  # #89: B is the slot a stock unit boots; written over DL with misc untouched
-    cmd = [f"rootfs_{slot}", args.mode, "--write", *tool_paths(args), "--candidate-dir", args.candidate_dir]
+    cmd = [f"rootfs_{slot}", args.mode, "--write", *tool_paths(args)]
+    if getattr(args, 'backup_rootfs', None):
+        cmd += ['--backup-rootfs', args.backup_rootfs]
+    else:
+        cmd += ['--candidate-dir', args.candidate_dir]
     cmd += ["--backup-copy", str(backup_copy)] if backup_copy else []
     cmd += ["--no-uart"] if getattr(args, "no_uart", False) else ["--uart-log", str(uart)]
     for flag in ("base_dir", "prior_identical"):
@@ -258,6 +262,10 @@ def selftest():
     assert "--base-dir" not in flash_cmd(argparse.Namespace(mode="identical", candidate_dir="C", base_dir=None, prior_identical=None, backup="Bk", loader="L"),
                                          Path("u"), Path("b"))
     b = flash_cmd(argparse.Namespace(mode="write", candidate_dir="C", base_dir="B", prior_identical=None, backup="Bk", loader="L", slot="b"), Path("u"), Path("b"))
+    saved = flash_cmd(argparse.Namespace(mode='write', candidate_dir=None, base_dir=None, prior_identical=None,
+                                        backup='Bk', loader='L', slot='a', backup_rootfs='b'), Path('u'), None)
+    assert saved[:2] == ['rootfs_a', 'write'] and saved[saved.index('--backup-rootfs') + 1] == 'b'
+    assert '--candidate-dir' not in saved
     assert b[0] == "rootfs_b" and "--base-dir" not in b  # #89: slot B is written from the backup, never from a base image
     asked = []
     power_off_countdown(2, ask=asked.append, sleep=lambda _: None)
@@ -301,7 +309,9 @@ def main():
     r.set_defaults(fn=cmd_read)
     f = sub.add_parser("flash")
     f.add_argument("mode", choices=("identical", "write"))
-    f.add_argument("--candidate-dir", required=True)
+    source = f.add_mutually_exclusive_group(required=True)
+    source.add_argument("--candidate-dir")
+    source.add_argument("--backup-rootfs", choices=("a", "b"), help="source rootfs from your verified --backup")
     f.add_argument("--base-dir")
     f.add_argument("--slot", choices=("a", "b"), default="a", help="a: the image slot (default); b: the slot a stock unit boots, written over DL (no SSH, misc untouched)")
     f.add_argument("--prior-identical")

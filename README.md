@@ -48,9 +48,11 @@ You need the X28, its power supply, a USB data cable, and enough disk space for 
 1. **Connect device.** Connect USB and follow the app's power-off/wait/power-on prompts. The device panel shows the stored boot slot.
 2. **Backup.** Choose a writable folder (for example, under Documents), let verification finish, then copy the backup to another disk. Keep this unit's backup for recovery.
 3. **Get an image.** Download a signed firmware image. Stable releases are shown by default; tick **Include beta releases** if you want pre-releases too.
-4. **Choose the write slot.** In **Flash OpenWrt**, select the image, your backup, and **A or B**. Flashing replaces that slot; it **does not change boot order**.
-5. **Flash.** Rehearsal is optional and writes the backed-up image, not the new firmware. Turn **Rehearsal off for the real write**, accept the checklist, and type the exact phrase requested. Wait for successful read-back verification.
+4. **Choose the image and write slot.** In **Flash OpenWrt**, select **Built / downloaded image** or **Rootfs from a verified backup**, then choose target **A or B**. For a backup source, select saved `rootfs_a` or `rootfs_b` independently of the target. Writing **does not change boot order**.
+5. **Flash or restore.** For a built/downloaded image, rehearsal is optional; turn **Rehearsal off for the real write**. A backup source directly restores the saved rootfs. Accept the checklist, type the exact phrase requested, and wait for read-back verification.
 6. **Boot the modem.** Disconnect the USB session, then power-cycle when ready. If you wrote the other slot, you must change **Boot order** separately using root SSH access.
+
+**Going back to vendor firmware?** Choose this unit's original vendor backup as the rootfs source. This restores only the selected rootfs and its saved settings—not the whole device. See [backup restore](docs/USAGE.md#restore-a-backup-rootfs).
 
 **Root access is optional**, not a prerequisite for a USB flash. If you need SSH on stock firmware to change boot order, prepare it before flashing; see the [manual](docs/USAGE.md#root-access).
 

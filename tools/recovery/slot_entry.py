@@ -75,17 +75,25 @@ def base_head(image, manifest):
     return pebs * peb
 
 
-def load_inputs(backup, loader, target, mode, candidate_dir, base_dir=None):
+def load_inputs(backup, loader, target, mode, candidate_dir, base_dir=None, backup_rootfs=None):
     """Verified originals, the pinned candidate and the spec; raises on any identity mismatch.
 
     base_dir (rootfs_a only, #137): package_ubi output of the image already on rootfs_a; identical/write start from it."""
+    if backup_rootfs is not None and (backup_rootfs not in ('a', 'b') or target not in ('rootfs_a', 'rootfs_b')
+                                    or mode not in ('identical', 'write') or candidate_dir is not None or base_dir is not None):
+        raise ValueError('backup rootfs is only for A/B rehearsal/write, without a candidate or base directory')
     table, by_name = verified_backup(backup, loader)
     original = Path(by_name[target]['image']).read_bytes()
-    manifest = json.loads((candidate_dir / 'manifest.json').read_text())
-    rootfs_a_image = (candidate_dir / 'rootfs-a-experimental.bin').read_bytes()
-    rootfs_a_sha = manifest.get('padded_sha256')
+    if backup_rootfs is not None:
+        source = by_name['rootfs_' + backup_rootfs]
+        rootfs_a_image = Path(source['image']).read_bytes()
+        rootfs_a_sha = source['sha256']
+    else:
+        manifest = json.loads((candidate_dir / 'manifest.json').read_text())
+        rootfs_a_image = (candidate_dir / 'rootfs-a-experimental.bin').read_bytes()
+        rootfs_a_sha = manifest.get('padded_sha256')
     if rootfs_a_sha != digest(rootfs_a_image):
-        raise ValueError('candidate does not match its build manifest')
+        raise ValueError('candidate does not match its verified source')
     base = None
     if base_dir is not None:
         if target != 'rootfs_a':
@@ -93,7 +101,12 @@ def load_inputs(backup, loader, target, mode, candidate_dir, base_dir=None):
         base = (base_dir / 'rootfs-a-experimental.bin').read_bytes()
         if json.loads((base_dir / 'manifest.json').read_text()).get('padded_sha256') != digest(base):
             raise ValueError('base does not match its build manifest')
-    if target == 'rootfs_b':
+    if backup_rootfs is not None:
+        neighbours = ('proinfo', 'misc', 'boot_para', 'rootfs_b' if target == 'rootfs_a' else 'rootfs_a')
+        guards = tuple((name, by_name[name]['offset'], by_name[name]['size'], by_name[name]['sha256']) for name in neighbours)
+        spec = session.backup_rootfs_spec(target, by_name[target]['sha256'], rootfs_a_sha, guards)
+        candidate = rootfs_a_image
+    elif target == 'rootfs_b':
         # Either slot can be written over DL; boot selection stays unchanged.
         images = {n: Path(by_name[n]['image']).read_bytes() for n in ('misc', 'rootfs_a', 'rootfs_b', 'boot_para')}
         if any(digest(images[n]) != by_name[n]['sha256'] for n in images):
@@ -115,11 +128,11 @@ def load_inputs(backup, loader, target, mode, candidate_dir, base_dir=None):
         candidate = bytes(candidate)
         if digest(candidate) != session.MISC_A_SHA:
             raise ValueError('misc candidate differs from the pinned selection image')
-    if mode == 'write':
-        spec.validate(original, candidate)  # refuse a bad candidate before any connection or claim
+    if mode == 'write' or backup_rootfs is not None:
+        spec.validate(original, candidate)  # refuse a bad source before any connection or claim
     for name, addr, size, sha in spec.guards:
         p = by_name[name]
-        if name == 'rootfs_b':  # static head only: stock B's overlay lives in the tail
+        if name == 'rootfs_b' and backup_rootfs is None:  # native guards compare only the static head
             if p['offset'] != addr or size > p['size'] or digest(Path(p['image']).read_bytes()[:size]) != sha:
                 raise ValueError('prefix guard identity mismatch: ' + name)
             continue
@@ -130,6 +143,8 @@ def load_inputs(backup, loader, target, mode, candidate_dir, base_dir=None):
     host = digest(host_identity().encode())
     identity = {'target': target, 'original': spec.original_sha, 'candidate': spec.candidate_sha, 'rootfs_a': rootfs_a_sha,
                 'base': spec.base_sha, 'base_head': spec.base_head, 'da': DA_HASH, 'host': host, 'tools': slot_tools_digest(), 'unit': by_name['proinfo']['sha256']}
+    if backup_rootfs is not None:
+        identity['backup_rootfs'] = backup_rootfs
     return by_name, table, original, candidate, spec, identity, base
 
 
@@ -168,10 +183,12 @@ def load_prior(run, expect, spec, mode, verified):
     return receipt
 
 
-def phrase(spec, mode, rootfs_a_sha, same_disk, no_ssh=False, no_uart=False):
+def phrase(spec, mode, rootfs_a_sha, same_disk, no_ssh=False, no_uart=False, backup_rootfs=None):
     # identical and restore write the original; the phrase names the bytes that will land on the target
     image = spec.candidate_sha if mode == 'write' else (spec.base_sha if spec.base_sha and mode == 'identical' else spec.original_sha)
     text = f'WRITE {mode} {spec.name} {image[:12]}'
+    if backup_rootfs is not None:
+        text += f' FROM-BACKUP-rootfs_{backup_rootfs if mode == "write" else spec.name[-1]}'
     if spec.base_sha and mode != 'restore':
         text += f' BASE {spec.base_sha[:12]} MISC-SELECTS-A'
     if spec.name == 'misc':
@@ -196,7 +213,9 @@ def main():
     ap.add_argument('--write', action='store_true')
     ap.add_argument('--backup', type=Path, default=DEFAULT_BACKUP)
     ap.add_argument('--loader', type=Path, default=VENDOR_DA)
-    ap.add_argument('--candidate-dir', type=Path, help='package_ubi output directory of the approved rootfs_a image (all sessions)')
+    source = ap.add_mutually_exclusive_group()
+    source.add_argument('--candidate-dir', type=Path, help='built/downloaded image directory')
+    source.add_argument('--backup-rootfs', choices=('a', 'b'), help='write this rootfs image from --backup, without a build manifest')
     ap.add_argument('--base-dir', type=Path, help='rootfs_a only: package_ubi output of the image now on rootfs_a; identical/write start from it, misc may select A')
     ap.add_argument('--backup-copy', type=Path, help='optional second complete-captured-partitions.tar')
     ap.add_argument('--uart-log', type=Path)
@@ -215,16 +234,16 @@ def main():
     for flag in ('prior_identical', 'prior_rootfs_a', 'resume'):
         if getattr(args, flag) is not None and flag not in [w[0] for w in OPTIONAL_PRIOR.get((args.target, args.mode), []) + required]:
             raise ValueError(f'--{flag.replace("_", "-")} is not valid for {args.target} {args.mode}')
-    if args.candidate_dir is None:
-        raise ValueError('--candidate-dir (the package_ubi output of the approved rootfs_a) is required for every session')
+    if args.candidate_dir is None and args.backup_rootfs is None:
+        raise ValueError('--candidate-dir or --backup-rootfs is required')
     backup, loader = args.backup.resolve(strict=True), args.loader.resolve(strict=True)
     parts, table, original, candidate, spec, identity, base = load_inputs(
-        backup, loader, args.target, args.mode, args.candidate_dir.resolve(strict=True),
-        args.base_dir.resolve(strict=True) if args.base_dir else None)
+        backup, loader, args.target, args.mode, args.candidate_dir.resolve(strict=True) if args.candidate_dir else None,
+        args.base_dir.resolve(strict=True) if args.base_dir else None, args.backup_rootfs)
     rootfs_a_sha = identity['rootfs_a']
     # rootfs_a sessions use this unit's pins from its backup; misc sessions stay on the first unit's pins (not supported elsewhere)
-    if args.target == 'rootfs_b':  # its priors are rootfs_b runs; no rootfs_a or misc spec is involved
-        specs = {'rootfs_b': spec}
+    if args.target == 'rootfs_b' or args.backup_rootfs is not None:
+        specs = {args.target: spec}
     else:
         specs = {'rootfs_a': spec if args.target == 'rootfs_a' else session.rootfs_a_spec(rootfs_a_sha, identity['base'], identity['base_head']),
                  'misc': session.misc_spec(rootfs_a_sha)}
@@ -236,6 +255,8 @@ def main():
     check_no_ssh(args.no_ssh, args.target, args.mode, spec)
     check_no_uart(args.no_uart, args.target, args.uart_log)
     print(f'{args.mode}: {args.target} only at {spec.addr:#x}, {spec.size:#x} bytes; candidate {spec.candidate_sha[:12]}; no reboot or retry')
+    if args.backup_rootfs is not None:
+        print(f'Source: verified backup rootfs_{args.backup_rootfs}. Only the selected target rootfs is written; boot order stays unchanged.')
     if spec.base_head and not spec.base_sha and args.full_checks:
         print(f'{spec.name} is rewritten whole; before the write only its first {spec.base_head:#x} bytes (layout + rootfs) must match the backup, the overlay tail is live')
     elif spec.base_sha and spec.base_head:
@@ -271,9 +292,10 @@ def main():
         raise ValueError('less than 1 GiB free for captures and sources')
     if not sys.stdin.isatty():
         raise ValueError('typed confirmation needs an interactive terminal')
-    expected_phrase = phrase(spec, args.mode, rootfs_a_sha, same_disk, args.no_ssh, args.no_uart)
-    print(('Confirm stable power' if args.no_uart else 'Confirm UART RX capture continues, stable power') + ', no stock upgrade/FOTA pending, and that the NOT-FLASHABLE marker')
-    print('on the candidate is deliberately overridden by the owner. Merging a PR is not approval.')
+    expected_phrase = phrase(spec, args.mode, rootfs_a_sha, same_disk, args.no_ssh, args.no_uart, args.backup_rootfs)
+    print(('Confirm stable power' if args.no_uart else 'Confirm UART RX capture continues, stable power') + ', no stock upgrade/FOTA pending.')
+    if args.backup_rootfs is None:
+        print('The NOT-FLASHABLE marker on the candidate is deliberately overridden by the owner. Merging a PR is not approval.')
     if args.target == 'misc':
         print('misc is the LIVE slot selector and is rewritten whole (1 MiB): a power or USB loss can leave no valid record.')
     if same_disk:
@@ -304,7 +326,10 @@ def main():
         light = args.target in ('rootfs_a', 'rootfs_b') and args.mode in ('identical', 'write') and base is None and not args.full_checks
         session.run_session(mtk.daloader, spec, original, candidate, run, mode=args.mode, base=base, guards=not light)
         receipt['status'] = 'VERIFIED'
-        print('Target and guards verified. No reboot issued; ' + ('after a no-UART flash do not reboot casually until x28-bootok has reset the boot counter.' if args.no_uart else 'review UART before approving the next step.'))
+        if args.backup_rootfs is not None:
+            print('Backup rootfs read-back verified. Boot order is unchanged; no reboot issued. Other partitions were not restored.')
+        else:
+            print('Target and guards verified. No reboot issued; ' + ('after a no-UART flash do not reboot casually until x28-bootok has reset the boot counter.' if args.no_uart else 'review UART before approving the next step.'))
     except BaseException:
         receipt['status'] = 'STOP_UNVERIFIED'
         print('STOP: no retry, slot switch or reboot. Preserve recovery state and private logs.')

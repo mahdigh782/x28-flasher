@@ -132,11 +132,23 @@ class CommandTests(unittest.TestCase):
             ok = {"slot": "a", "mode": "identical", "candidate": str(d / "img"), "backup": str(d / "bk"), "accept": True}
             self.assertEqual(gui.build_command(FakeFl, "flash", ok, "DA")[-2:], ["run", "flash"])
             self.assertEqual(gui.build_command(FakeFl, "flash", {**ok, "mode": "write", "prior": ""}, "DA")[-2:], ["run", "flash"])  # a rehearsal is optional
-            for bad, regex in (({"slot": "c"}, "slot A or slot B"), ({"mode": "x"}, "rehearsal"), ({"candidate": str(d)}, "built image"),
+            for bad, regex in (({"slot": "c"}, "slot A or slot B"), ({"mode": "x"}, "rehearsal"), ({"candidate": str(d)}, "built/downloaded image"),
                                ({"backup": str(d)}, "ARCHIVE"), ({"copy": str(d / "nope")}, "second copy"), ({"accept": False}, "accept"),
                                ({"mode": "write", "prior": "/not/a/verified/run"}, "older than 24 hours")):
                 with self.assertRaisesRegex(ValueError, regex):
                     gui.build_command(FakeFl, "flash", {**ok, **bad}, "DA")
+
+    def test_backup_rootfs_needs_no_built_image_and_keeps_source_and_target_separate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            backup = Path(folder)
+            (backup / 'images').mkdir()
+            (backup / 'ARCHIVE.sha256').write_text('hash  archive.tar')
+            (backup / 'images/mtd-rootfs_b.bin').write_bytes(b'backup')
+            params = {'slot': 'a', 'backup_rootfs': 'b', 'backup': str(backup), 'mode': 'write', 'accept': True}
+            self.assertEqual(gui.build_command(FakeFl, 'flash', params, 'DA')[-2:], ['run', 'flash'])
+            for bad in ({'backup_rootfs': 'c'}, {'backup_rootfs': 'a'}, {'candidate': str(backup)}, {'base': str(backup)}, {'accept': False}):
+                with self.assertRaises(ValueError):
+                    gui.build_command(FakeFl, 'flash', {**params, **bad}, 'DA')
 
     def test_frozen_runs_itself(self):
         fl = types.SimpleNamespace(FROZEN=True, RECOVERY=Path("/r"))

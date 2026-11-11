@@ -151,6 +151,20 @@ def rootfs_b_spec(candidate_sha, pins=FIRST_UNIT):
     return Spec('rootfs_b', 0x1fc00000, 0x4000000, pins['rootfs_b'], guards, validate_rootfs_b, candidate_sha, guards, '', ROOTFS_B_HEAD)
 
 
+def backup_rootfs_spec(target, original_sha, candidate_sha, guards):
+    """Restore exact verified backup bytes, including vendor layouts and images equal to the original."""
+    addresses = {'rootfs_a': 0x13600000, 'rootfs_b': 0x1fc00000}
+    if target not in addresses or any(not re.fullmatch(r'[0-9a-f]{64}', value) for value in (original_sha, candidate_sha)):
+        raise ValueError('choose a rootfs target and a verified backup SHA-256')
+
+    def validate(original, candidate):
+        # Vendor backups do not necessarily use the native image builder's UBI layout.
+        if len(candidate) != 0x4000000 or digest(candidate) != candidate_sha:
+            raise ValueError('backup rootfs bytes differ from the verified source')
+
+    return Spec(target, addresses[target], 0x4000000, original_sha, guards, validate, candidate_sha, guards)
+
+
 def misc_spec(rootfs_a_sha):
     """Select A (write) or return to B (restore). misc is a live, whole-partition (1 MiB) erase and rewrite."""
     if len(rootfs_a_sha) != 64 or rootfs_a_sha in (ROOTFS_A_SHA, ROOTFS_B_SHA):
