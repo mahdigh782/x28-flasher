@@ -1,199 +1,73 @@
 <div align="center">
 
-<img src="docs/assets/logo.svg" alt="X28 Flasher" width="120">
+<img src="docs/assets/logo.svg" alt="X28 Flasher" width="100">
 
 # X28 Flasher
 
-**Backup, verify and guarded flashing for the ZLT X28 5G CPE (MediaTek MT6890): a double-click app that walks you from a full NAND backup to native OpenWrt, and back again if anything goes wrong.**
+Back up and flash your **ZLT X28 5G modem (MediaTek MT6890 / T750)** from a desktop app.
+
+[Download](https://github.com/mralinp/x28-flasher/releases) · [Quick start](#quick-start) · [Full guide](docs/USAGE.md) · [Contribute](CONTRIBUTING.md)
 
 [![CI](https://github.com/mralinp/x28-flasher/actions/workflows/ci.yml/badge.svg)](https://github.com/mralinp/x28-flasher/actions/workflows/ci.yml)
-![SoC](https://img.shields.io/badge/SoC-MediaTek%20MT6890%20(T750)-orange)
-![Platforms](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux-lightgrey)
-[![License: GPL v2](https://img.shields.io/badge/license-GPL--2.0--only-blue.svg)](LICENSE)
-
-[Warning](#warning) · [What it does](#what-it-does) · [Install](#install-and-run) · [The steps](#the-steps) · [Safety model](#safety-model) · [Build](#build-the-binary-and-the-packages) · [Layout](#repository-layout) · [Tests](#tests)
 
 </div>
 
+<a id="warning"></a>
 > [!WARNING]
-> <a id="warning"></a>**Your device, your risk.** The X28 is usually someone's only internet connection, and flashing it
-> writes its NAND over the MediaTek download agent. Take a verified backup first, keep a UART attached, and read
-> [docs/USAGE.md](docs/USAGE.md) before ticking any box. Not affiliated with ZLT, Tozed, MediaTek or Quectel.
-
-The firmware itself lives in [mralinp/zlt-x28-openwrt](https://github.com/mralinp/zlt-x28-openwrt); its docs
-(`docs/RECOVERY.md`, `docs/BUILD.md`, `docs/research/`) describe the procedures these tools implement. This repo does
-not depend on that repo's code: images, userspace, feed packages and the overlay are downloaded from its releases and
-hash-checked.
+> Flashing can leave your modem unable to boot. **Make a verified backup and keep a second copy on another disk before writing.**
+> Keep power and USB connected until the operation finishes. Stop or closing the app cannot undo a write.
+> A UART adapter is recommended for diagnosing boot problems. Not affiliated with ZLT, Tozed, MediaTek or Quectel.
 
 ![X28 Flasher](docs/screenshot.png)
 
-## What it does
+## Install
 
-| Step | What happens | Writes flash? |
+Download the package for your computer from **[Releases](https://github.com/mralinp/x28-flasher/releases)**.
+Each supported platform has its own desktop window.
+
+| Your computer | Download | Install and open |
 |---|---|---|
-| **Connect** | Power off, wait 10 s, power on: finds the unit over USB (BROM) | no |
-| **Backup** | Reads all partitions over USB into a hash-verified archive, with a second copy | no |
-| **Root access** | Reads a snapshot of slot B and writes key-only SSH (port 22) into it; once, on a fresh unit | **yes** |
-| **Read & verify** | Re-reads a partition and compares it with the backup | no |
-| **Get an image** | Downloads a release's signed image (checked against the X28 signing key), or assembles one from your own unit's backup plus a firmware release | no |
-| **Flash OpenWrt** | Writes your selected slot, A or B, with image validation and read-back verification; boot selection does not restrict the target | **yes** |
-| **Boot order** | A/B switch for the slot that boots next, over SSH on the running modem | **yes** |
-| **UART monitor** | Captures the serial console to a log the guarded tools require | no |
+| Windows 10 (1809+) / 11, x64 | `X28-Flasher-windows-x64-setup.exe` | Run setup, then open **X28 Flasher** from Start. |
+| macOS, Apple silicon | `X28-Flasher-macos-arm64.dmg` | Drag the app to Applications. It is unsigned; first launch with right-click → **Open**. |
+| Linux x86_64, Debian/Ubuntu-compatible | `X28-Flasher-linux-x86_64.deb` | Run `sudo apt install ./X28-Flasher-linux-x86_64.deb`, then open **X28 Flasher** from the menu. |
 
-## Install and run
+No cloning, pip setup or separate download agent is needed. The modem tools and `DA_BR.bin` are bundled.
 
-Download the package for your system from the [releases page](https://github.com/mralinp/x28-flasher/releases), install it and start
-**X28 Flasher**. Nothing else is needed: Python, mtkclient, libusb, the page and the Quectel download agent (`DA_BR.bin`) are inside.
+- **Windows:** setup installs WebView2 if missing (internet required). The modem's download interface may also need a compatible WinUSB driver.
+- **Linux:** APT installs the GTK/WebKit dependencies. Tested on Ubuntu 22.04; WebKitGTK 4.1 must be available, as on Debian 12+.
+- **Docker is only needed** for **Build from my backup** and **Root access**. Downloading and flashing a signed image needs no Docker.
+- **Boot order** needs root SSH access to the running modem and an OpenSSH client on your computer. See the [full guide](docs/USAGE.md#boot-order).
 
-| System | Package | Install |
-|---|---|---|
-| Linux x86_64 | `X28-Flasher-linux-x86_64.deb` | `sudo apt install ./X28-Flasher-linux-x86_64.deb`, then **X28 Flasher** in the menu or `x28-flasher` |
-| macOS, Apple silicon | `X28-Flasher-macos-arm64.dmg` | drag **X28 Flasher** to Applications; the app is not signed, so the first start is right-click, **Open** |
-| Windows 10 (1809+) / 11, x64 | `X28-Flasher-windows-x64-setup.exe` | run the installer, then open **X28 Flasher** from Start; it has its own native window |
+## Quick start
 
-Every merge to `main` triggers CI. A release is published only after all three platform builds pass and the Linux `.deb`,
-Apple-silicon macOS `.dmg`, and Windows setup `.exe` are present, each with a `SHA256SUMS-*.txt`.
-The macOS build uses the GitHub-hosted `macos-15` Apple-silicon runner.
+You need the X28, its power supply, a USB data cable, and enough disk space for a full backup.
 
-Windows, Linux and macOS each open their own native desktop window, not an external browser.
-Closing the window stops the backend, with a warning before interrupting a job. Only this computer can reach the internal page;
-its **Quit** button also stops the flasher.
+1. **Connect device.** Connect USB and follow the app's power-off/wait/power-on prompts. The device panel shows the stored boot slot.
+2. **Backup.** Choose a writable folder (for example, under Documents), let verification finish, then copy the backup to another disk. Keep this unit's backup for recovery.
+3. **Get an image.** Download a signed firmware image. Stable releases are shown by default; tick **Include beta releases** if you want pre-releases too.
+4. **Choose the write slot.** In **Flash OpenWrt**, select the image, your backup, and **A or B**. Flashing replaces that slot; it **does not change boot order**.
+5. **Flash.** Rehearsal is optional and writes the backed-up image, not the new firmware. Turn **Rehearsal off for the real write**, accept the checklist, and type the exact phrase requested. Wait for successful read-back verification.
+6. **Boot the modem.** Disconnect the USB session, then power-cycle when ready. If you wrote the other slot, you must change **Boot order** separately using root SSH access.
 
-**Get an image** lists stable releases by default; tick **Include beta releases** to also list pre-releases.
-**Connect device** reads and displays the stored boot slot over USB (not the running OS slot).
-**Flash OpenWrt** lets you write either slot regardless of boot selection; it does not change boot order.
-Writing the selected boot slot replaces the image the modem will try at its next power-up.
+**Root access is optional**, not a prerequisite for a USB flash. If you need SSH on stock firmware to change boot order, prepare it before flashing; see the [manual](docs/USAGE.md#root-access).
 
-**Building an image from your backup** and **Root access** assemble the image in a container, so those two steps need Docker.
-Downloading a release's signed image and flashing it needs none.
+If a step fails, keep the run folder and logs. **Do not blindly retry a write, switch slots or reboot after a stopped write.**
+Use the [full guide and recovery references](docs/USAGE.md#troubleshooting).
 
-**Windows:** the native window uses Microsoft WebView2, not an external browser. Setup installs the WebView2 Runtime if it is missing
-(internet is required in that case). The installer also bundles the Windows pseudo-terminal, so typed write confirmations work without Python or WSL.
-Windows may require a compatible WinUSB driver for the modem's download interface; bundling libusb does not install that device driver.
-**Boot order** needs an OpenSSH client (`ssh`) on the host; **Root access** also needs `ssh-keygen` (Windows Optional Features → OpenSSH Client).
-On Windows, **Stop** terminates the worker; it cannot undo a write or guarantee the device is bootable after an interrupted flash.
-**Linux:** the `.deb` installs GTK, WebKitGTK 4.1 and the distro's Python/GObject bindings through APT; no pip setup is needed.
-The frozen modem backend remains bundled. The native window is tested on Ubuntu 22.04; distributions must provide WebKitGTK 4.1 (such as Debian 12 or newer).
-The `x28-flasher` command opens the native window; terminal subcommands still run the backend.
-Only x64 Windows, x86_64 Debian/Ubuntu-compatible Linux, and Apple-silicon macOS packages are built.
+## Help and contribute
 
-**From the checkout** instead (for work on the tools; needs Python 3.10+ and libusb, `brew install libusb` on a Mac):
-
-```bash
-git clone git@github.com:mralinp/x28-flasher.git
-cd x28-flasher
-python3 tools/recovery/setup_mtkclient.py        # once: the pinned, patched mtkclient (the page's Setup box does this too)
-python3 tools/x28-flasher/x28_flasher.py         # prints the page address and opens it; Ctrl-C or the page's Quit stops it
-python3 tools/x28-flasher/x28_flasher.py wizard  # the same steps as a terminal menu
-```
-
-The download agent is in this repo (`tools/x28-flasher/assets/DA_BR.bin`, SHA-256 checked), so there is nothing to choose here either.
-The page's loader field only overrides it; a saved path that no longer exists is ignored. Log on a Mac: `~/Library/Logs/x28-flasher.log`.
-
-## The steps
-
-1. **Connect**: power off, wait 10 s, power on.
-2. **Backup**: do this first and keep the copy off the computer you flash from.
-3. **Root access**: once on a fresh unit, after the backup: reads a snapshot of slot B and writes key-only SSH into it.
-4. **Get an image**: pick a firmware release and download its signed image, or build one from your backup (the overlay and userspace are downloaded and hash-checked).
-5. **Flash OpenWrt**: dry run, then the real write.
-6. **Read & verify**: confirm what landed.
-7. **Boot order**: switch which slot boots next, when you need to.
-
-Details, prompts and recovery are in **[the manual](docs/USAGE.md)**: what each part is for and how to use it.
-
-## Safety model
-
-- Every writing tool does a **dry run first**, then asks for its own **typed phrase** per step.
-- The page needs the **risk checklist** ticked before a writing step starts.
-- Receipts bind each step to the hashes of the recovery tools, so those files must not change mid-chain.
-- The UART capture must have been updated within 60 s, or the guarded tools refuse.
-- Nothing in the front end writes flash itself; it only hands over to `tools/recovery/`.
-- Firmware dumps are **never committed** (`.gitignore`). The vendor download agent is the one exception: it is a fixed, hash-checked file kept in this private repository, and every build includes it, so do not make this repository or its releases public.
-- Telnet is not offered; `stock_access.py` sets up key-only SSH.
-
-## Build the binary and the packages
-
-This is what CI does (`.github/workflows/ci.yml`), on the system you build for: there is no cross-building.
-
-**1. Once: libusb, the pinned mtkclient and a build venv in `bh/`**
-
-```bash
-brew install libusb                               # macOS
-sudo apt-get install -y libusb-1.0-0              # Linux
-
-COMMIT="$(python3 -c "import sys; sys.path.insert(0, 'tools/recovery'); import common; print(common.MTKCLIENT_COMMIT)")"
-mkdir -p bh/src && git -C bh/src init -q
-git -C bh/src fetch -q --depth 1 https://github.com/bkerler/mtkclient.git "$COMMIT"
-git -C bh/src -c advice.detachedHead=false checkout -q FETCH_HEAD
-python3 -m venv bh/venv
-bh/venv/bin/python -m pip install pycryptodome pycryptodomex pyserial pyusb colorama questionary pyinstaller
-```
-
-On Windows, use `bh/venv/Scripts/python` instead of `bh/venv/bin/python`, and also install `libusb pywinpty==3.1.2` into that venv.
-CI installs pywinpty for the Windows source tests too. Password prompts use the packaged binary's SSH helper; source checkouts on Windows should use SSH keys.
-
-**2. The binary** (`dist/x28-flasher/`, one folder that runs as it is)
-
-```bash
-bh/venv/bin/python tools/x28-flasher/build_binary.py --home bh --out dist --version 0.1.0
-dist/x28-flasher/x28-flasher --selftest           # prints "selftest ok"
-dist/x28-flasher/x28-flasher                      # serves the page and opens your browser
-```
-
-`--version` is the number shown in the page (`dev` without it; CI passes the release it is about to tag). The build installs the
-pinned mtkclient into the venv, patches it, and puts `tools/x28-flasher/assets/DA_BR.bin` inside after checking its SHA-256; it
-stops if that file is missing or different. `--loader /other/DA_BR.bin` bundles another copy, under the same check.
-
-**3. The package**, from that folder
-
-```bash
-# macOS: dist/X28 Flasher.app (a native window when swiftc is installed), then the .dmg
-python3 tools/x28-flasher/build_app.py
-hdiutil create -volname "X28 Flasher" -srcfolder "dist/X28 Flasher.app" -ov -format UDZO X28-Flasher-macos-arm64.dmg
-
-# Linux: the .deb (includes the native GTK/WebKit window, menu entry and CLI launcher)
-tools/x28-flasher/installers/make_deb.sh dist 0.1.0 X28-Flasher-linux-x86_64.deb
-```
-
-On Windows, run `python tools/x28-flasher/build_windows.py` after building the binary, then compile
-`tools/x28-flasher/installers/windows.iss` with Inno Setup (`Src=dist\\x28-flasher`, `Out` and `Version` defined).
-The native build uses the Windows .NET Framework compiler and downloads a pinned, checksum-verified WebView2 SDK plus Microsoft's signed Runtime bootstrapper.
-CI installs the finished Windows setup package and Linux `.deb`, opens each native window, checks that the UI loads,
-and verifies that closing it stops the backend. Linux uses Xvfb for this test; production runs on the user's normal desktop.
-
-Build again after every `git pull`; `dist/`, `bh/` and `private/` are ignored by git and stay in the checkout. A build contains
-Quectel's download agent, so share it only where this repository may be shared.
-
-## Repository layout
-
-| Path | Contents |
-|---|---|
-| `tools/recovery/` | backup and verify, mtkclient setup, USB reads, guarded flash sessions. Hash-bound: do not edit mid-chain |
-| `tools/x28-flasher/` | the page (`gui/`), terminal wizard, app and PyInstaller builds |
-| `tools/build/` | image assembly: `stage_native.py`, `first_boot.py`, `ab_guard.py`, `package_ubi.py`, `sysupgrade_tar.py` (the unsigned sysupgrade tarball), `stock_access.py` |
-| `tools/firmware/` | the tools container and partition inventory |
-| `docs/` | [manual](docs/USAGE.md), assets |
-
-`first_boot.py` reads the firmware's package files from the release's `x28-overlay-*.tar.gz` (the page downloads it; set
-`X28_OVERLAY` or extract it to `overlay/` to run the scripts or tests by hand).
-
-## Tests
-
-```bash
-export X28_OVERLAY=/path/to/zlt-x28-openwrt      # first_boot.py reads the package files from that checkout (or an extracted x28-overlay-*.tar.gz)
-for t in tools/build/test_*.py tools/recovery/test_*.py tools/x28-flasher/test_*.py; do python3 "$t" || break; done
-```
-
-CI runs them on Linux x86_64 (and macOS arm64 when it has a runner), then builds the binary and the package and smoke-tests the
-binary. GUI prompt, terminal, session and frozen-binary smoke tests run on Windows as well as Linux and macOS.
+- [Full usage guide](docs/USAGE.md): each action, boot order, logs and troubleshooting.
+- [Contributing guide](CONTRIBUTING.md): source setup, tests, builds and pull requests.
+- [Report a problem](https://github.com/mralinp/x28-flasher/issues): include the app version, OS, failed step and error; redact device identifiers and secrets.
+- [Firmware project](https://github.com/mralinp/zlt-x28-openwrt): OpenWrt images and recovery research.
 
 ## Support
 
-Made with ❤️ by mralinp. If this project helps you, please give it a star on GitHub, and donations are welcome on any EVM chain: `0x6743d8fe71f18b3101f3086e8d9f8d272d0f7618`
+Made with ❤️ by mralinp. Stars and contributions are welcome.
+Donations on any EVM chain: `0x6743d8fe71f18b3101f3086e8d9f8d272d0f7618`.
 
-<img src="docs/support-qr.svg" alt="QR code of the support address" width="160">
+<img src="docs/support-qr.svg" alt="Donation address QR code" width="100">
 
 ## License
 
-GPL-2.0-only, see [LICENSE](LICENSE).
+See [LICENSE](LICENSE). Bundled third-party components retain their own license terms.
