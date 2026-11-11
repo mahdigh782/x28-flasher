@@ -111,11 +111,22 @@ jobs:
         if: runner.os == 'Linux'
         run: tools/x28-flasher/installers/make_deb.sh dist "${{ needs.version.outputs.version }}" X28-Flasher-linux-x86_64.deb
 
+      - name: Smoke test the installed Linux native app
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y ./X28-Flasher-linux-x86_64.deb xvfb xauth dbus-x11
+          dbus-run-session -- xvfb-run -a env WEBKIT_DISABLE_COMPOSITING_MODE=1 python3 tools/x28-flasher/smoke_linux.py
+
       - name: Installer (Windows setup)
         if: runner.os == 'Windows'
         run: |
+          python3 tools/x28-flasher/build_windows.py
           choco install innosetup -y --no-progress
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "//DSrc=$(cygpath -w "$PWD/dist/x28-flasher")" "//DOut=$(cygpath -w "$PWD")" "//DVersion=${{ needs.version.outputs.version }}" tools/x28-flasher/installers/windows.iss
+
+      - name: Smoke test the installed Windows native app
+        if: runner.os == 'Windows'
+        run: python3 tools/x28-flasher/smoke_windows.py X28-Flasher-windows-x64-setup.exe
 
       - name: Checksums
         run: |

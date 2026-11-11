@@ -49,14 +49,15 @@ Download the package for your system from the [releases page](https://github.com
 |---|---|---|
 | Linux x86_64 | `X28-Flasher-linux-x86_64.deb` | `sudo apt install ./X28-Flasher-linux-x86_64.deb`, then **X28 Flasher** in the menu or `x28-flasher` |
 | macOS, Apple silicon | `X28-Flasher-macos-arm64.dmg` | drag **X28 Flasher** to Applications; the app is not signed, so the first start is right-click, **Open** |
-| Windows 10 (1809+) / 11, x64 | `X28-Flasher-windows-x64-setup.exe` | run the installer, then open **X28 Flasher** from Start; the UI opens in your browser |
+| Windows 10 (1809+) / 11, x64 | `X28-Flasher-windows-x64-setup.exe` | run the installer, then open **X28 Flasher** from Start; it has its own native window |
 
 Every merge to `main` triggers CI. A release is published only after all three platform builds pass and the Linux `.deb`,
 Apple-silicon macOS `.dmg`, and Windows setup `.exe` are present, each with a `SHA256SUMS-*.txt`.
 The macOS build uses the GitHub-hosted `macos-15` Apple-silicon runner.
 
-On a Mac the app has its own window; on Linux and Windows it opens the page in your browser. Only this computer can reach the page;
-its **Quit** button stops the flasher.
+Windows, Linux and macOS each open their own native desktop window, not an external browser.
+Closing the window stops the backend, with a warning before interrupting a job. Only this computer can reach the internal page;
+its **Quit** button also stops the flasher.
 
 **Get an image** lists stable releases by default; tick **Include beta releases** to also list pre-releases.
 **Connect device** reads and displays the stored boot slot over USB (not the running OS slot).
@@ -66,10 +67,14 @@ Writing the selected boot slot replaces the image the modem will try at its next
 **Building an image from your backup** and **Root access** assemble the image in a container, so those two steps need Docker.
 Downloading a release's signed image and flashing it needs none.
 
-**Windows:** the installer bundles the Windows pseudo-terminal, so the same page and typed write confirmations work without Python or WSL.
+**Windows:** the native window uses Microsoft WebView2, not an external browser. Setup installs the WebView2 Runtime if it is missing
+(internet is required in that case). The installer also bundles the Windows pseudo-terminal, so typed write confirmations work without Python or WSL.
 Windows may require a compatible WinUSB driver for the modem's download interface; bundling libusb does not install that device driver.
 **Boot order** needs an OpenSSH client (`ssh`) on the host; **Root access** also needs `ssh-keygen` (Windows Optional Features → OpenSSH Client).
 On Windows, **Stop** terminates the worker; it cannot undo a write or guarantee the device is bootable after an interrupted flash.
+**Linux:** the `.deb` installs GTK, WebKitGTK 4.1 and the distro's Python/GObject bindings through APT; no pip setup is needed.
+The frozen modem backend remains bundled. The native window is tested on Ubuntu 22.04; distributions must provide WebKitGTK 4.1 (such as Debian 12 or newer).
+The `x28-flasher` command opens the native window; terminal subcommands still run the backend.
 Only x64 Windows, x86_64 Debian/Ubuntu-compatible Linux, and Apple-silicon macOS packages are built.
 
 **From the checkout** instead (for work on the tools; needs Python 3.10+ and libusb, `brew install libusb` on a Mac):
@@ -147,9 +152,15 @@ stops if that file is missing or different. `--loader /other/DA_BR.bin` bundles 
 python3 tools/x28-flasher/build_app.py
 hdiutil create -volname "X28 Flasher" -srcfolder "dist/X28 Flasher.app" -ov -format UDZO X28-Flasher-macos-arm64.dmg
 
-# Linux: the .deb (installs to /opt/x28-flasher, with a menu entry and /usr/bin/x28-flasher)
+# Linux: the .deb (includes the native GTK/WebKit window, menu entry and CLI launcher)
 tools/x28-flasher/installers/make_deb.sh dist 0.1.0 X28-Flasher-linux-x86_64.deb
 ```
+
+On Windows, run `python tools/x28-flasher/build_windows.py` after building the binary, then compile
+`tools/x28-flasher/installers/windows.iss` with Inno Setup (`Src=dist\\x28-flasher`, `Out` and `Version` defined).
+The native build uses the Windows .NET Framework compiler and downloads a pinned, checksum-verified WebView2 SDK plus Microsoft's signed Runtime bootstrapper.
+CI installs the finished Windows setup package and Linux `.deb`, opens each native window, checks that the UI loads,
+and verifies that closing it stops the backend. Linux uses Xvfb for this test; production runs on the user's normal desktop.
 
 Build again after every `git pull`; `dist/`, `bh/` and `private/` are ignored by git and stay in the checkout. A build contains
 Quectel's download agent, so share it only where this repository may be shared.
